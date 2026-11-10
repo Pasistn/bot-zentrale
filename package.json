@@ -12,7 +12,8 @@
     "build": "npm run build -w web && npm run build -w server",
     "start": "npm run start -w server",
     "typecheck": "npm run typecheck -w server && npm run typecheck -w web",
-    "secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\""
+    "secret": "node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"",
+    "deploy": "node scripts/deploy.mjs"
   },
   "engines": {
     "node": ">=22.13"

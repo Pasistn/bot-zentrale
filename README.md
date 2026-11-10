@@ -76,6 +76,7 @@ Für den Betrieb ohne Vite `PUBLIC_URL` auf `http://localhost:3000` setzen und `
 | `npm start` | Gebaute Version starten |
 | `npm run typecheck` | TypeScript prüfen |
 | `npm run secret` | Zufälliges Session-Secret |
+| `npm run deploy` | Committeten Stand auf den Server bringen |
 
 ## Desktop-App
 
@@ -158,9 +159,26 @@ Verfügbare Events über `ctx.on`: `chat`, `watchStreak`, `raid`, `sub`, `giftSu
 
 ## Betrieb auf einem Server
 
-Hinter einem Reverse-Proxy mit HTTPS (z. B. Caddy), `HOST=127.0.0.1` lassen und `PUBLIC_URL` auf die öffentliche Adresse setzen. Bei `https://` werden Cookies automatisch als `Secure` gesetzt. Die neue Callback-URL muss in der Twitch-Konsole eingetragen werden.
+Läuft produktiv auf einer Ubuntu-VM (ARM64) hinter Caddy, der das HTTPS-Zertifikat selbst holt. Die Dateien dazu liegen in `deploy/`:
 
-Mit `DATABASE_URL` nutzt der Bot Postgres. Beim ersten Start werden die Tabellen angelegt und die Daten aus der lokalen SQLite-Datei übernommen, sofern die Postgres-Datenbank leer ist.
+| Datei | |
+|---|---|
+| `deploy/Caddyfile` | Reverse-Proxy auf `127.0.0.1:3000` |
+| `deploy/bot-zentrale.service` | systemd-Dienst mit Neustart bei Absturz, Schreibrechte nur auf `data/` |
+| `deploy/update.sh` | Sichert die Datenbank, installiert, baut und startet neu |
+
+Auf dem Server steht in der `.env` `PUBLIC_URL` auf der öffentlichen HTTPS-Adresse, `HOST` bleibt `127.0.0.1`. Bei `https://` werden Cookies automatisch als `Secure` gesetzt. Die Callback-URL `https://…/auth/callback` muss in der Twitch-Konsole eingetragen sein.
+
+Updates gehen per Git über SSH direkt auf den Server, ohne Umweg über GitHub:
+
+```bash
+git remote add server bot-zentrale:/opt/bot-zentrale
+npm run deploy
+```
+
+`npm run deploy` bricht ab, wenn es nicht committete Änderungen gibt. Auf dem Server muss dafür `git config receive.denyCurrentBranch updateInstead` gesetzt sein. Vor jedem Update landet eine Sicherung der Datenbank in `data/backups/`, die letzten 14 bleiben erhalten.
+
+Mit `DATABASE_URL` nutzt der Bot Postgres statt SQLite. Beim ersten Start werden die Tabellen angelegt und die Daten aus der lokalen SQLite-Datei übernommen, sofern die Postgres-Datenbank leer ist.
 
 ## Bekannte Punkte
 

@@ -1,0 +1,21 @@
+[Unit]
+Description=Bot-Zentrale
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/bot-zentrale
+Environment=NODE_ENV=production
+ExecStart=/usr/local/bin/bot-zentrale-node --disable-warning=ExperimentalWarning --disable-warning=DEP0040 server/dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/bot-zentrale/data
+
+[Install]
+WantedBy=multi-user.target
