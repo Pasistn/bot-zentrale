@@ -11,10 +11,41 @@ type Log = (level: LogLevel, message: string) => void;
 function schema(dialect: Dialect): string {
   const id = dialect === "postgres" ? "BIGSERIAL PRIMARY KEY" : "INTEGER PRIMARY KEY AUTOINCREMENT";
   return `
-  CREATE TABLE IF NOT EXISTS modules (
-    id TEXT PRIMARY KEY,
+  CREATE TABLE IF NOT EXISTS channels (
+    login TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    overlay_token TEXT NOT NULL UNIQUE,
+    created_at BIGINT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS channel_access (
+    channel TEXT NOT NULL,
+    login TEXT NOT NULL,
+    PRIMARY KEY (channel, login)
+  );
+
+  CREATE TABLE IF NOT EXISTS channel_modules (
+    channel TEXT NOT NULL,
+    id TEXT NOT NULL,
     enabled INTEGER NOT NULL DEFAULT 0,
-    settings TEXT NOT NULL DEFAULT '{}'
+    settings TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (channel, id)
+  );
+
+  CREATE TABLE IF NOT EXISTS channel_settings (
+    channel TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (channel, key)
+  );
+
+  CREATE TABLE IF NOT EXISTS chatter_counts (
+    channel TEXT NOT NULL,
+    login TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    count BIGINT NOT NULL,
+    last_at BIGINT NOT NULL,
+    PRIMARY KEY (channel, login)
   );
 
   CREATE TABLE IF NOT EXISTS sessions (
@@ -57,13 +88,6 @@ function schema(dialect: Dialect): string {
     value TEXT NOT NULL
   );
 
-  CREATE TABLE IF NOT EXISTS top_chatters (
-    login TEXT PRIMARY KEY,
-    display_name TEXT NOT NULL,
-    count BIGINT NOT NULL,
-    last_at BIGINT NOT NULL
-  );
-
   CREATE TABLE IF NOT EXISTS twitch_tokens (
     login TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -81,7 +105,91 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["stream_sessions", "viewer_samples", "BIGINT NOT NULL DEFAULT 0"],
   ["stream_sessions", "followers_start", "BIGINT"],
   ["stream_sessions", "followers_end", "BIGINT"],
+  ["stream_sessions", "channel", "TEXT NOT NULL DEFAULT ''"],
+  ["stream_events", "channel", "TEXT NOT NULL DEFAULT ''"],
+  ["sessions", "channel", "TEXT NOT NULL DEFAULT ''"],
 ];
+
+const INDEXES = [
+  "CREATE INDEX IF NOT EXISTS stream_events_channel ON stream_events (channel, created_at)",
+  "CREATE INDEX IF NOT EXISTS stream_sessions_channel ON stream_sessions (channel, started_at)",
+  "CREATE INDEX IF NOT EXISTS channel_access_login ON channel_access (login)",
+];
+
+async function tableExists(target: Db, name: string): Promise<boolean> {
+  if (target.dialect === "postgres") {
+    const row = await target.get<{ name: string | null }>("SELECT to_regclass(?)::text AS name", [name]);
+    return Boolean(row?.name);
+  }
+  return Boolean(await target.get("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", [name]));
+}
+
+function newOverlayToken(): string {
+  return randomBytes(24).toString("base64url");
+}
+
+export function legacyChannel(): string {
+  return config.ownChannel ?? config.ownerLogins[0];
+}
+
+async function adoptSingleChannelData(target: Db, owner: string): Promise<void> {
+  const statements: [string, SqlParam[]][] = [];
+
+  if (await tableExists(target, "modules")) {
+    statements.push(
+      [
+        `INSERT INTO channel_modules (channel, id, enabled, settings)
+         SELECT ?, id, enabled, settings FROM modules WHERE true ON CONFLICT DO NOTHING`,
+        [owner],
+      ],
+      ["DROP TABLE modules", []]
+    );
+  }
+
+  if (await tableExists(target, "top_chatters")) {
+    statements.push(
+      [
+        `INSERT INTO chatter_counts (channel, login, display_name, count, last_at)
+         SELECT ?, login, display_name, count, last_at FROM top_chatters WHERE true ON CONFLICT DO NOTHING`,
+        [owner],
+      ],
+      ["DROP TABLE top_chatters", []]
+    );
+  }
+
+  const legacyToken = await target.get<{ value: string }>("SELECT value FROM app_settings WHERE key = 'overlay_token'");
+  if (legacyToken) {
+    statements.push(
+      [
+        `INSERT INTO channels (login, display_name, overlay_token, created_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT DO NOTHING`,
+        [owner, owner, legacyToken.value, Date.now()],
+      ],
+      ["DELETE FROM app_settings WHERE key = 'overlay_token'", []]
+    );
+  }
+
+  const chatterSession = await target.get<{ value: string }>(
+    "SELECT value FROM app_settings WHERE key = 'top_chatter_session'"
+  );
+  if (chatterSession) {
+    statements.push(
+      [
+        "INSERT INTO channel_settings (channel, key, value) VALUES (?, 'top_chatter_session', ?) ON CONFLICT DO NOTHING",
+        [owner, chatterSession.value],
+      ],
+      ["DELETE FROM app_settings WHERE key = 'top_chatter_session'", []]
+    );
+  }
+
+  statements.push(
+    ["UPDATE stream_events SET channel = ? WHERE channel = ''", [owner]],
+    ["UPDATE stream_sessions SET channel = ? WHERE channel = ''", [owner]],
+    ["DELETE FROM sessions WHERE channel = ''", []]
+  );
+
+  await target.batch(statements);
+}
 
 async function migrate(target: Db): Promise<void> {
   await target.exec(schema(target.dialect));
@@ -95,19 +203,24 @@ async function migrate(target: Db): Promise<void> {
       await target.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
   }
+  for (const index of INDEXES) await target.exec(index);
+  await adoptSingleChannelData(target, legacyChannel());
 }
 
 const COPY_TABLES: Record<string, string[]> = {
-  modules: ["id", "enabled", "settings"],
-  sessions: ["id", "user_id", "login", "display_name", "avatar_url", "created_at", "expires_at"],
-  stream_events: ["id", "type", "login", "display_name", "amount", "created_at"],
+  channels: ["login", "display_name", "overlay_token", "created_at"],
+  channel_access: ["channel", "login"],
+  channel_modules: ["channel", "id", "enabled", "settings"],
+  channel_settings: ["channel", "key", "value"],
+  chatter_counts: ["channel", "login", "display_name", "count", "last_at"],
+  sessions: ["id", "user_id", "login", "display_name", "avatar_url", "created_at", "expires_at", "channel"],
+  stream_events: ["id", "channel", "type", "login", "display_name", "amount", "created_at"],
   stream_sessions: [
-    "id", "stream_id", "streamer", "title", "games", "started_at", "last_seen_at", "ended_at", "peak_viewers",
-    "status", "posted_at", "post_error", "chat_messages", "viewer_sum", "viewer_samples", "followers_start",
-    "followers_end",
+    "id", "channel", "stream_id", "streamer", "title", "games", "started_at", "last_seen_at", "ended_at",
+    "peak_viewers", "status", "posted_at", "post_error", "chat_messages", "viewer_sum", "viewer_samples",
+    "followers_start", "followers_end",
   ],
   app_settings: ["key", "value"],
-  top_chatters: ["login", "display_name", "count", "last_at"],
   twitch_tokens: ["login", "user_id", "access_token", "refresh_token", "scopes", "expires_at"],
 };
 
@@ -123,7 +236,7 @@ async function importFromSqlite(target: Db, sqlitePath: string, log: Log): Promi
     ]);
 
   const used = await target.get<{ n: number }>(
-    "SELECT (SELECT COUNT(*) FROM modules) + (SELECT COUNT(*) FROM stream_sessions) AS n"
+    "SELECT (SELECT COUNT(*) FROM channel_modules) + (SELECT COUNT(*) FROM stream_sessions) AS n"
   );
   if (!existsSync(sqlitePath) || (used?.n ?? 0) > 0) {
     await markDone();
@@ -137,7 +250,8 @@ async function importFromSqlite(target: Db, sqlitePath: string, log: Log): Promi
     let rows = 0;
     for (const [table, columns] of Object.entries(COPY_TABLES)) {
       const data = await source.all<Record<string, SqlParam>>(`SELECT ${columns.join(", ")} FROM ${table}`);
-      const insert = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`;
+      const insert = `INSERT INTO ${table} (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})
+        ON CONFLICT DO NOTHING`;
       for (const row of data) statements.push([insert, columns.map((c) => row[c] ?? null)]);
       rows += data.length;
     }
@@ -155,6 +269,14 @@ async function importFromSqlite(target: Db, sqlitePath: string, log: Log): Promi
   }
 }
 
+async function backupBeforeUpgrade(target: Db, path: string, log: Log): Promise<void> {
+  if (!(await tableExists(target, "modules"))) return;
+  const backup = path.replace(/(\.db)?$/, ".vor-umbau.db");
+  if (existsSync(backup)) return;
+  await target.exec(`VACUUM INTO '${backup.replace(/'/g, "''")}'`);
+  log("info", `Sicherung der alten Datenbank: ${backup}`);
+}
+
 export async function initDb(log: Log): Promise<void> {
   if (config.databaseUrl) {
     const ca = config.databaseCaPath ? readFileSync(config.databaseCaPath, "utf8") : null;
@@ -164,27 +286,148 @@ export async function initDb(log: Log): Promise<void> {
     log("info", "Datenbank: Postgres");
   } else {
     db = openSqlite(config.dbPath);
+    await backupBeforeUpgrade(db, config.dbPath, log);
     await migrate(db);
     log("info", `Datenbank: ${config.dbPath}`);
   }
+  await channelStore.load();
+  await accessStore.load();
   await moduleStore.load();
-  await overlayTokenStore.load();
 }
 
 export async function closeDb(): Promise<void> {
   await db?.close();
 }
 
-async function getAppSetting(key: string): Promise<string | null> {
-  const row = await db.get<{ value: string }>("SELECT value FROM app_settings WHERE key = ?", [key]);
+export interface Channel {
+  login: string;
+  displayName: string;
+  overlayToken: string;
+  createdAt: number;
+}
+
+const channels = new Map<string, Channel>();
+const channelsByToken = new Map<string, string>();
+
+function cacheChannel(channel: Channel): void {
+  const previous = channels.get(channel.login);
+  if (previous) channelsByToken.delete(previous.overlayToken);
+  channels.set(channel.login, channel);
+  channelsByToken.set(channel.overlayToken, channel.login);
+}
+
+export const channelStore = {
+  async load(): Promise<void> {
+    channels.clear();
+    channelsByToken.clear();
+    const rows = await db.all<{ login: string; display_name: string; overlay_token: string; created_at: number }>(
+      "SELECT login, display_name, overlay_token, created_at FROM channels"
+    );
+    for (const r of rows) {
+      cacheChannel({ login: r.login, displayName: r.display_name, overlayToken: r.overlay_token, createdAt: r.created_at });
+    }
+  },
+
+  list(): Channel[] {
+    return [...channels.values()].sort((a, b) => a.login.localeCompare(b.login));
+  },
+
+  get(login: string): Channel | null {
+    return channels.get(login) ?? null;
+  },
+
+  byOverlayToken(token: string): Channel | null {
+    const login = channelsByToken.get(token);
+    return login ? channels.get(login) ?? null : null;
+  },
+
+  async add(login: string, displayName: string): Promise<Channel> {
+    const existing = channels.get(login);
+    if (existing) return existing;
+    const channel: Channel = { login, displayName, overlayToken: newOverlayToken(), createdAt: Date.now() };
+    await db.run(
+      "INSERT INTO channels (login, display_name, overlay_token, created_at) VALUES (?, ?, ?, ?)",
+      [channel.login, channel.displayName, channel.overlayToken, channel.createdAt]
+    );
+    cacheChannel(channel);
+    return channel;
+  },
+
+  async remove(login: string): Promise<void> {
+    await db.run("DELETE FROM channels WHERE login = ?", [login]);
+    const channel = channels.get(login);
+    if (channel) channelsByToken.delete(channel.overlayToken);
+    channels.delete(login);
+  },
+
+  async setDisplayName(login: string, displayName: string): Promise<void> {
+    const channel = channels.get(login);
+    if (!channel || channel.displayName === displayName) return;
+    await db.run("UPDATE channels SET display_name = ? WHERE login = ?", [displayName, login]);
+    cacheChannel({ ...channel, displayName });
+  },
+
+  async renewToken(login: string): Promise<string> {
+    const channel = channels.get(login);
+    if (!channel) throw new Error(`Kanal ${login} gibt es nicht.`);
+    const token = newOverlayToken();
+    await db.run("UPDATE channels SET overlay_token = ? WHERE login = ?", [token, login]);
+    cacheChannel({ ...channel, overlayToken: token });
+    return token;
+  },
+};
+
+const access = new Map<string, Set<string>>();
+
+export const accessStore = {
+  async load(): Promise<void> {
+    access.clear();
+    const rows = await db.all<{ channel: string; login: string }>("SELECT channel, login FROM channel_access");
+    for (const r of rows) {
+      const set = access.get(r.channel) ?? new Set<string>();
+      set.add(r.login);
+      access.set(r.channel, set);
+    }
+  },
+
+  list(channel: string): string[] {
+    return [...(access.get(channel) ?? [])].sort();
+  },
+
+  has(channel: string, login: string): boolean {
+    return access.get(channel)?.has(login) ?? false;
+  },
+
+  channelsOf(login: string): string[] {
+    return [...access].filter(([, logins]) => logins.has(login)).map(([channel]) => channel);
+  },
+
+  async add(channel: string, login: string): Promise<void> {
+    await db.run("INSERT INTO channel_access (channel, login) VALUES (?, ?) ON CONFLICT DO NOTHING", [channel, login]);
+    const set = access.get(channel) ?? new Set<string>();
+    set.add(login);
+    access.set(channel, set);
+  },
+
+  async remove(channel: string, login: string): Promise<void> {
+    await db.run("DELETE FROM channel_access WHERE channel = ? AND login = ?", [channel, login]);
+    access.get(channel)?.delete(login);
+  },
+};
+
+async function getChannelSetting(channel: string, key: string): Promise<string | null> {
+  const row = await db.get<{ value: string }>("SELECT value FROM channel_settings WHERE channel = ? AND key = ?", [
+    channel,
+    key,
+  ]);
   return row?.value ?? null;
 }
 
-async function setAppSetting(key: string, value: string): Promise<void> {
+async function setChannelSetting(channel: string, key: string, value: string): Promise<void> {
   await db.run(
-    `INSERT INTO app_settings (key, value) VALUES (?, ?)
-     ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
-    [key, value]
+    `INSERT INTO channel_settings (channel, key, value) VALUES (?, ?, ?)
+     ON CONFLICT(channel, key) DO UPDATE SET value = excluded.value`,
+    [channel, key, value]
   );
 }
 
@@ -194,12 +437,13 @@ export interface StoredModule {
 }
 
 const moduleCache = new Map<string, StoredModule>();
+const moduleKey = (channel: string, id: string) => `${channel}/${id}`;
 
 export const moduleStore = {
   async load(): Promise<void> {
     moduleCache.clear();
-    const rows = await db.all<{ id: string; enabled: number; settings: string }>(
-      "SELECT id, enabled, settings FROM modules"
+    const rows = await db.all<{ channel: string; id: string; enabled: number; settings: string }>(
+      "SELECT channel, id, enabled, settings FROM channel_modules"
     );
     for (const row of rows) {
       let settings: Record<string, unknown> = {};
@@ -208,50 +452,30 @@ export const moduleStore = {
       } catch {
         settings = {};
       }
-      moduleCache.set(row.id, { enabled: Number(row.enabled) === 1, settings });
+      moduleCache.set(moduleKey(row.channel, row.id), { enabled: Number(row.enabled) === 1, settings });
     }
   },
 
-  get(id: string): StoredModule {
-    return moduleCache.get(id) ?? { enabled: false, settings: {} };
+  get(channel: string, id: string): StoredModule {
+    return moduleCache.get(moduleKey(channel, id)) ?? { enabled: false, settings: {} };
   },
 
-  async setEnabled(id: string, enabled: boolean): Promise<void> {
+  async setEnabled(channel: string, id: string, enabled: boolean): Promise<void> {
     await db.run(
-      `INSERT INTO modules (id, enabled) VALUES (?, ?)
-       ON CONFLICT(id) DO UPDATE SET enabled = excluded.enabled`,
-      [id, enabled ? 1 : 0]
+      `INSERT INTO channel_modules (channel, id, enabled) VALUES (?, ?, ?)
+       ON CONFLICT(channel, id) DO UPDATE SET enabled = excluded.enabled`,
+      [channel, id, enabled ? 1 : 0]
     );
-    moduleCache.set(id, { ...this.get(id), enabled });
+    moduleCache.set(moduleKey(channel, id), { ...this.get(channel, id), enabled });
   },
 
-  async setSettings(id: string, settings: Record<string, unknown>): Promise<void> {
+  async setSettings(channel: string, id: string, settings: Record<string, unknown>): Promise<void> {
     await db.run(
-      `INSERT INTO modules (id, settings) VALUES (?, ?)
-       ON CONFLICT(id) DO UPDATE SET settings = excluded.settings`,
-      [id, JSON.stringify(settings)]
+      `INSERT INTO channel_modules (channel, id, settings) VALUES (?, ?, ?)
+       ON CONFLICT(channel, id) DO UPDATE SET settings = excluded.settings`,
+      [channel, id, JSON.stringify(settings)]
     );
-    moduleCache.set(id, { ...this.get(id), settings });
-  },
-};
-
-const OVERLAY_TOKEN_KEY = "overlay_token";
-let overlayToken = "";
-
-export const overlayTokenStore = {
-  async load(): Promise<void> {
-    overlayToken = (await getAppSetting(OVERLAY_TOKEN_KEY)) ?? (await this.renew());
-  },
-
-  get(): string {
-    return overlayToken;
-  },
-
-  async renew(): Promise<string> {
-    const token = randomBytes(24).toString("base64url");
-    await setAppSetting(OVERLAY_TOKEN_KEY, token);
-    overlayToken = token;
-    return token;
+    moduleCache.set(moduleKey(channel, id), { ...this.get(channel, id), settings });
   },
 };
 
@@ -265,31 +489,32 @@ export interface StoredChatter {
 const TOP_CHATTER_SESSION_KEY = "top_chatter_session";
 
 export const topChatterStore = {
-  async all(): Promise<StoredChatter[]> {
+  async all(channel: string): Promise<StoredChatter[]> {
     const rows = await db.all<{ login: string; display_name: string; count: number; last_at: number }>(
-      "SELECT login, display_name, count, last_at FROM top_chatters"
+      "SELECT login, display_name, count, last_at FROM chatter_counts WHERE channel = ?",
+      [channel]
     );
     return rows.map((r) => ({ login: r.login, displayName: r.display_name, count: r.count, lastAt: r.last_at }));
   },
 
-  async save(chatters: StoredChatter[]): Promise<void> {
-    const upsert = `INSERT INTO top_chatters (login, display_name, count, last_at) VALUES (?, ?, ?, ?)
-       ON CONFLICT(login) DO UPDATE SET
+  async save(channel: string, chatters: StoredChatter[]): Promise<void> {
+    const upsert = `INSERT INTO chatter_counts (channel, login, display_name, count, last_at) VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(channel, login) DO UPDATE SET
          display_name = excluded.display_name, count = excluded.count, last_at = excluded.last_at`;
-    await db.batch(chatters.map((c) => [upsert, [c.login, c.displayName, c.count, c.lastAt]]));
+    await db.batch(chatters.map((c) => [upsert, [channel, c.login, c.displayName, c.count, c.lastAt]]));
   },
 
-  async clear(): Promise<void> {
-    await db.run("DELETE FROM top_chatters");
+  async clear(channel: string): Promise<void> {
+    await db.run("DELETE FROM chatter_counts WHERE channel = ?", [channel]);
   },
 
-  async getSessionId(): Promise<number | null> {
-    const raw = await getAppSetting(TOP_CHATTER_SESSION_KEY);
+  async getSessionId(channel: string): Promise<number | null> {
+    const raw = await getChannelSetting(channel, TOP_CHATTER_SESSION_KEY);
     return raw === null ? null : Number(raw);
   },
 
-  async setSessionId(id: number): Promise<void> {
-    await setAppSetting(TOP_CHATTER_SESSION_KEY, String(id));
+  async setSessionId(channel: string, id: number): Promise<void> {
+    await setChannelSetting(channel, TOP_CHATTER_SESSION_KEY, String(id));
   },
 };
 
@@ -304,14 +529,14 @@ export interface StreamEvent {
 }
 
 export const streamEventStore = {
-  async add(event: Omit<StreamEvent, "createdAt">, createdAt = Date.now()): Promise<void> {
+  async add(channel: string, event: Omit<StreamEvent, "createdAt">, createdAt = Date.now()): Promise<void> {
     await db.run(
-      "INSERT INTO stream_events (type, login, display_name, amount, created_at) VALUES (?, ?, ?, ?, ?)",
-      [event.type, event.login, event.displayName, event.amount, createdAt]
+      "INSERT INTO stream_events (channel, type, login, display_name, amount, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [channel, event.type, event.login, event.displayName, event.amount, createdAt]
     );
   },
 
-  async between(from: number, to: number): Promise<StreamEvent[]> {
+  async between(channel: string, from: number, to: number): Promise<StreamEvent[]> {
     const rows = await db.all<{
       type: StreamEventType;
       login: string;
@@ -320,8 +545,8 @@ export const streamEventStore = {
       created_at: number;
     }>(
       `SELECT type, login, display_name, amount, created_at FROM stream_events
-       WHERE created_at >= ? AND created_at <= ? ORDER BY created_at`,
-      [from, to]
+       WHERE channel = ? AND created_at >= ? AND created_at <= ? ORDER BY created_at`,
+      [channel, from, to]
     );
     return rows.map((r) => ({
       type: r.type,
@@ -341,6 +566,7 @@ export type StreamSessionStatus = "live" | "pending" | "posted" | "discarded";
 
 export interface StreamSession {
   id: number;
+  channel: string;
   streamId: string;
   streamer: string;
   title: string;
@@ -361,6 +587,7 @@ export interface StreamSession {
 
 interface StreamSessionRow {
   id: number;
+  channel: string;
   stream_id: string;
   streamer: string;
   title: string;
@@ -388,6 +615,7 @@ function toStreamSession(row: StreamSessionRow): StreamSession {
   }
   return {
     id: Number(row.id),
+    channel: row.channel,
     streamId: row.stream_id,
     streamer: row.streamer,
     title: row.title,
@@ -408,26 +636,32 @@ function toStreamSession(row: StreamSessionRow): StreamSession {
 }
 
 export const streamSessionStore = {
-  async get(id: number): Promise<StreamSession | null> {
-    const row = await db.get<StreamSessionRow>("SELECT * FROM stream_sessions WHERE id = ?", [id]);
+  async get(channel: string, id: number): Promise<StreamSession | null> {
+    const row = await db.get<StreamSessionRow>("SELECT * FROM stream_sessions WHERE channel = ? AND id = ?", [
+      channel,
+      id,
+    ]);
     return row ? toStreamSession(row) : null;
   },
 
-  async live(): Promise<StreamSession | null> {
+  async live(channel: string): Promise<StreamSession | null> {
     const row = await db.get<StreamSessionRow>(
-      "SELECT * FROM stream_sessions WHERE status = 'live' ORDER BY id DESC LIMIT 1"
+      "SELECT * FROM stream_sessions WHERE channel = ? AND status = 'live' ORDER BY id DESC LIMIT 1",
+      [channel]
     );
     return row ? toStreamSession(row) : null;
   },
 
-  async recent(limit: number): Promise<StreamSession[]> {
-    const rows = await db.all<StreamSessionRow>("SELECT * FROM stream_sessions ORDER BY started_at DESC LIMIT ?", [
-      limit,
-    ]);
+  async recent(channel: string, limit: number): Promise<StreamSession[]> {
+    const rows = await db.all<StreamSessionRow>(
+      "SELECT * FROM stream_sessions WHERE channel = ? ORDER BY started_at DESC LIMIT ?",
+      [channel, limit]
+    );
     return rows.map(toStreamSession);
   },
 
   async open(input: {
+    channel: string;
     streamId: string;
     streamer: string;
     title: string;
@@ -438,11 +672,12 @@ export const streamSessionStore = {
   }): Promise<StreamSession> {
     const row = await db.get<{ id: number }>(
       `INSERT INTO stream_sessions
-         (stream_id, streamer, title, games, started_at, last_seen_at, peak_viewers, viewer_sum, viewer_samples,
-          followers_start, followers_end)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+         (channel, stream_id, streamer, title, games, started_at, last_seen_at, peak_viewers, viewer_sum,
+          viewer_samples, followers_start, followers_end)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
        RETURNING id`,
       [
+        input.channel,
         input.streamId,
         input.streamer,
         input.title,
@@ -455,7 +690,7 @@ export const streamSessionStore = {
         input.followers,
       ]
     );
-    return (await this.get(Number(row!.id)))!;
+    return (await this.get(input.channel, Number(row!.id)))!;
   },
 
   async seen(
@@ -523,29 +758,42 @@ export interface SessionUser {
   avatarUrl: string | null;
 }
 
+export interface Session {
+  user: SessionUser;
+  channel: string;
+}
+
 export const sessionStore = {
-  async create(sessionId: string, user: SessionUser, expiresAt: number): Promise<void> {
+  async create(sessionId: string, user: SessionUser, channel: string, expiresAt: number): Promise<void> {
     await db.run(
-      `INSERT INTO sessions (id, user_id, login, display_name, avatar_url, created_at, expires_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [sessionId, user.id, user.login, user.displayName, user.avatarUrl, Date.now(), expiresAt]
+      `INSERT INTO sessions (id, user_id, login, display_name, avatar_url, channel, created_at, expires_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [sessionId, user.id, user.login, user.displayName, user.avatarUrl, channel, Date.now(), expiresAt]
     );
   },
 
-  async get(sessionId: string): Promise<SessionUser | null> {
+  async get(sessionId: string): Promise<Session | null> {
     const row = await db.get<{
       user_id: string;
       login: string;
       display_name: string;
       avatar_url: string | null;
+      channel: string;
       expires_at: number;
-    }>("SELECT user_id, login, display_name, avatar_url, expires_at FROM sessions WHERE id = ?", [sessionId]);
+    }>("SELECT user_id, login, display_name, avatar_url, channel, expires_at FROM sessions WHERE id = ?", [sessionId]);
     if (!row) return null;
     if (row.expires_at < Date.now()) {
       await this.delete(sessionId);
       return null;
     }
-    return { id: row.user_id, login: row.login, displayName: row.display_name, avatarUrl: row.avatar_url };
+    return {
+      user: { id: row.user_id, login: row.login, displayName: row.display_name, avatarUrl: row.avatar_url },
+      channel: row.channel,
+    };
+  },
+
+  async setChannel(sessionId: string, channel: string): Promise<void> {
+    await db.run("UPDATE sessions SET channel = ? WHERE id = ?", [channel, sessionId]);
   },
 
   async delete(sessionId: string): Promise<void> {
@@ -567,7 +815,7 @@ export interface TwitchToken {
 }
 
 export const twitchTokenStore = {
-  async get(login: string): Promise<TwitchToken | null> {
+  async get(channel: string): Promise<TwitchToken | null> {
     const row = await db.get<{
       login: string;
       user_id: string;
@@ -575,7 +823,7 @@ export const twitchTokenStore = {
       refresh_token: string;
       scopes: string;
       expires_at: number;
-    }>("SELECT * FROM twitch_tokens WHERE login = ?", [login]);
+    }>("SELECT * FROM twitch_tokens WHERE login = ?", [channel]);
     if (!row) return null;
     return {
       login: row.login,
@@ -598,7 +846,7 @@ export const twitchTokenStore = {
     );
   },
 
-  async delete(login: string): Promise<void> {
-    await db.run("DELETE FROM twitch_tokens WHERE login = ?", [login]);
+  async delete(channel: string): Promise<void> {
+    await db.run("DELETE FROM twitch_tokens WHERE login = ?", [channel]);
   },
 };

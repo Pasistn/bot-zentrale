@@ -46,7 +46,7 @@ function baseState(settings: SettingsValues): Omit<TopChatterState, "chatters"> 
   };
 }
 
-export function createTopChatterModule(): BotModule {
+export function createTopChatterModule(channel: string): BotModule {
   const chatters = new Map<string, { displayName: string; count: number; lastAt: number }>();
   const dirty = new Set<string>();
   let loaded = false;
@@ -62,10 +62,10 @@ export function createTopChatterModule(): BotModule {
 
   async function load(): Promise<void> {
     if (loaded) return;
-    for (const c of await topChatterStore.all()) {
+    for (const c of await topChatterStore.all(channel)) {
       chatters.set(c.login, { displayName: c.displayName, count: c.count, lastAt: c.lastAt });
     }
-    sessionId = await topChatterStore.getSessionId();
+    sessionId = await topChatterStore.getSessionId(channel);
     loaded = true;
   }
 
@@ -82,7 +82,7 @@ export function createTopChatterModule(): BotModule {
     if (dirty.size === 0) return;
     const batch = [...dirty].map((login) => ({ login, ...chatters.get(login)! }));
     dirty.clear();
-    topChatterStore.save(batch).catch((err) => {
+    topChatterStore.save(channel, batch).catch((err) => {
       for (const c of batch) dirty.add(c.login);
       ctx?.log("error", `Zähler nicht gespeichert: ${err instanceof Error ? err.message : String(err)}`);
     });
@@ -91,14 +91,14 @@ export function createTopChatterModule(): BotModule {
   async function resetCounts(): Promise<void> {
     chatters.clear();
     dirty.clear();
-    await topChatterStore.clear();
+    await topChatterStore.clear(channel);
   }
 
   async function sync(ctx: ModuleContext, info: StreamInfo): Promise<void> {
     if (sessionId !== info.sessionId) {
       sessionId = info.sessionId;
       await resetCounts();
-      await topChatterStore.setSessionId(info.sessionId);
+      await topChatterStore.setSessionId(channel, info.sessionId);
       ctx.log("info", "Neuer Stream erkannt, die Top-Chatter beginnen bei 0");
     }
     for (const msg of pending) {
@@ -143,7 +143,7 @@ export function createTopChatterModule(): BotModule {
     if (testTimer) return;
     const list = ranking(ctx.settings);
     loadAvatars(ctx, list);
-    setOverlayState("top-chatter", { ...baseState(ctx.settings), chatters: list });
+    setOverlayState(channel, "top-chatter", { ...baseState(ctx.settings), chatters: list });
   }
 
   function schedulePublish(ctx: ModuleContext): void {
@@ -227,11 +227,11 @@ export function createTopChatterModule(): BotModule {
           testTimer = setTimeout(() => {
             testTimer = null;
             if (activeCtx) publish(activeCtx);
-            else setOverlayState("top-chatter", EMPTY_STATE);
+            else setOverlayState(channel, "top-chatter", EMPTY_STATE);
           }, TEST_DURATION_MS);
 
           const names = ["Chatkönig", "Dauerschreiber", "Emote_Fan", "Lurker_Nicht", "Frage_Steller"];
-          setOverlayState("top-chatter", {
+          setOverlayState(channel, "top-chatter", {
             ...baseState(ctx.settings),
             chatters: names.slice(0, Number(ctx.settings.places)).map((name, i) => ({
               login: name.toLowerCase(),
@@ -292,7 +292,7 @@ export function createTopChatterModule(): BotModule {
       if (publishTimer) clearTimeout(publishTimer);
       publishTimer = null;
       save(null);
-      if (!testTimer) setOverlayState("top-chatter", EMPTY_STATE);
+      if (!testTimer) setOverlayState(channel, "top-chatter", EMPTY_STATE);
     },
   };
 }

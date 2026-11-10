@@ -1,13 +1,15 @@
 import { randomBytes } from "node:crypto";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { config } from "./config.js";
-import { sessionStore, type SessionUser } from "./db.js";
+import { canAccess, canManageAccess, channelsFor, defaultChannelFor, isOwner } from "./channels.js";
+import { channelStore, sessionStore, type Session, type SessionUser } from "./db.js";
 import { log } from "./logger.js";
 import { keepLoginToken, LOGIN_SCOPES, type LoginTokens } from "./twitch/user-token.js";
 
 declare module "fastify" {
   interface FastifyRequest {
     user: SessionUser | null;
+    channel: string;
   }
 }
 
@@ -23,21 +25,37 @@ function cookieBase() {
   };
 }
 
-export async function userFromRequest(request: FastifyRequest): Promise<SessionUser | null> {
+function sessionId(request: FastifyRequest): string | null {
   const raw = request.cookies[SESSION_COOKIE];
   if (!raw) return null;
   const unsigned = request.unsignCookie(raw);
-  if (!unsigned.valid || !unsigned.value) return null;
-  return sessionStore.get(unsigned.value);
+  return unsigned.valid && unsigned.value ? unsigned.value : null;
+}
+
+export async function sessionFromRequest(request: FastifyRequest): Promise<Session | null> {
+  const id = sessionId(request);
+  if (!id) return null;
+  const session = await sessionStore.get(id);
+  if (!session) return null;
+  if (canAccess(session.user.login, session.channel)) return session;
+
+  const fallback = defaultChannelFor(session.user.login);
+  if (!fallback) {
+    await sessionStore.delete(id);
+    return null;
+  }
+  await sessionStore.setChannel(id, fallback);
+  return { ...session, channel: fallback };
 }
 
 export async function requireAuth(request: FastifyRequest, reply: FastifyReply): Promise<void> {
-  const user = await userFromRequest(request);
-  if (!user) {
+  const session = await sessionFromRequest(request);
+  if (!session) {
     await reply.code(401).send({ error: "Nicht angemeldet." });
     return;
   }
-  request.user = user;
+  request.user = session.user;
+  request.channel = session.channel;
 }
 
 export function isAllowedOrigin(request: FastifyRequest): boolean {
@@ -114,6 +132,7 @@ async function revokeToken(accessToken: string): Promise<void> {
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.decorateRequest("user", null);
+  app.decorateRequest("channel", "");
 
   app.get("/auth/login", async (_request, reply) => {
     const state = randomBytes(24).toString("hex");
@@ -154,11 +173,13 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         return redirectWithError(reply, "twitch");
       }
 
-      if (!config.adminLogins.includes(user.login)) {
+      const channel = defaultChannelFor(user.login);
+      if (!channel) {
         await revokeToken(tokens.accessToken);
-        log("warn", "auth", `Login verweigert für ${user.login} (nicht in ADMIN_LOGINS)`);
+        log("warn", "auth", `Login verweigert für ${user.login}, kein freigeschalteter Kanal`);
         return redirectWithError(reply, "forbidden");
       }
+      await channelStore.setDisplayName(user.login, user.displayName);
 
       const kept = await keepLoginToken(user.login, user.id, tokens).catch((err) => {
         log("warn", "auth", `Twitch-Zugang nicht gespeichert: ${err instanceof Error ? err.message : String(err)}`);
@@ -168,26 +189,38 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       const sessionId = randomBytes(32).toString("hex");
       const maxAgeSeconds = Math.round(config.sessionDays * 24 * 60 * 60);
-      await sessionStore.create(sessionId, user, Date.now() + maxAgeSeconds * 1000);
+      await sessionStore.create(sessionId, user, channel, Date.now() + maxAgeSeconds * 1000);
 
       reply.setCookie(SESSION_COOKIE, sessionId, { ...cookieBase(), path: "/", maxAge: maxAgeSeconds });
-      log("info", "auth", `${user.displayName} hat sich angemeldet`);
+      log("info", "auth", `${user.displayName} hat sich angemeldet`, channel);
       return reply.redirect(`${config.publicUrl}/`);
     }
   );
 
   app.post("/auth/logout", async (request, reply) => {
     if (!isAllowedOrigin(request)) return reply.code(403).send({ error: "Ungültige Herkunft." });
-    const raw = request.cookies[SESSION_COOKIE];
-    if (raw) {
-      const unsigned = request.unsignCookie(raw);
-      if (unsigned.valid && unsigned.value) await sessionStore.delete(unsigned.value);
-    }
+    const id = sessionId(request);
+    if (id) await sessionStore.delete(id);
     reply.clearCookie(SESSION_COOKIE, { path: "/" });
     return { ok: true };
   });
 
   app.get("/api/me", { preHandler: requireAuth }, async (request) => {
-    return { user: request.user };
+    const login = request.user!.login;
+    return {
+      user: request.user,
+      channel: request.channel,
+      channels: channelsFor(login).map((c) => ({ login: c.login, displayName: c.displayName })),
+      owner: isOwner(login),
+      canManageAccess: canManageAccess(login, request.channel),
+    };
+  });
+
+  app.post<{ Body: { channel?: unknown } }>("/api/me/channel", { preHandler: requireAuth }, async (request, reply) => {
+    if (!isAllowedOrigin(request)) return reply.code(403).send({ error: "Ungültige Herkunft." });
+    const channel = String(request.body?.channel ?? "");
+    if (!canAccess(request.user!.login, channel)) return reply.code(403).send({ error: "Kein Zugriff auf diesen Kanal." });
+    await sessionStore.setChannel(sessionId(request)!, channel);
+    return { channel };
   });
 }

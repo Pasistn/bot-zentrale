@@ -7,32 +7,31 @@ import { config } from "./config.js";
 import { closeDb, initDb, sessionStore } from "./db.js";
 import { log } from "./logger.js";
 import { authRoutes } from "./auth.js";
-import { createModules } from "./modules/index.js";
-import { ModuleManager } from "./modules/manager.js";
 import { moduleRoutes } from "./routes/modules.js";
 import { liveRoutes } from "./routes/live.js";
 import { mediaRoutes } from "./routes/media.js";
 import { overlayRoutes } from "./routes/overlays.js";
 import { summaryRoutes } from "./routes/summaries.js";
-import { StreamTracker } from "./stream/tracker.js";
-import { TwitchHub } from "./twitch/hub.js";
+import { ChannelRegistry } from "./channels.js";
+import { channelRoutes } from "./routes/channels.js";
+import { TwitchChat } from "./twitch/chat.js";
 
 async function main(): Promise<void> {
   await initDb((level, message) => log(level, "db", message));
 
-  const hub = new TwitchHub(config.twitchChannel);
-  const tracker = new StreamTracker(hub);
-  const manager = new ModuleManager(hub, tracker, createModules());
+  const chat = new TwitchChat();
+  const registry = new ChannelRegistry(chat);
 
   const app = Fastify({ logger: false, trustProxy: true, bodyLimit: 64 * 1024 });
 
   await app.register(fastifyCookie, { secret: config.sessionSecret });
   await app.register(fastifyWebsocket);
   await app.register(authRoutes);
-  await app.register(moduleRoutes, { manager, hub });
-  await app.register(summaryRoutes, { manager, hub });
-  await app.register(liveRoutes, { manager, hub });
-  await app.register(overlayRoutes, { manager });
+  await app.register(moduleRoutes, { registry, chat });
+  await app.register(summaryRoutes, { registry });
+  await app.register(channelRoutes, { registry });
+  await app.register(liveRoutes, { registry, chat });
+  await app.register(overlayRoutes, { registry });
   await app.register(mediaRoutes);
 
   if (existsSync(config.webDist)) {
@@ -55,9 +54,8 @@ async function main(): Promise<void> {
     if (removed > 0) log("info", "auth", `${removed} abgelaufene Sitzung(en) entfernt`);
   }, 60 * 60 * 1000);
 
-  await manager.init();
-  await hub.start();
-  await tracker.start();
+  await registry.startAll();
+  await chat.start();
   await app.listen({ port: config.port, host: config.host });
 
   log("info", "server", `Läuft auf http://${config.host}:${config.port}`);
@@ -72,9 +70,8 @@ async function main(): Promise<void> {
     shuttingDown = true;
     log("info", "server", "Wird beendet ...");
     clearInterval(purgeTimer);
-    await manager.shutdown();
-    await tracker.stop();
-    await hub.stop();
+    await registry.shutdown();
+    await chat.stop();
     await app.close();
     await closeDb();
     process.exit(0);

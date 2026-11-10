@@ -1,6 +1,4 @@
 import { EventEmitter } from "node:events";
-import tmi from "tmi.js";
-import { log } from "../logger.js";
 import type { GiftSub, HubEvents, Raid, Sub, SubTier, WatchStreak } from "./types.js";
 
 type Tags = Record<string, unknown>;
@@ -133,72 +131,59 @@ export function parseGiftSub(command: string, tags: Tags): ParsedGift | null {
   };
 }
 
+export type ChatUserstate = Record<string, unknown> & {
+  username?: string;
+  "display-name"?: string;
+  badges?: Record<string, string | undefined> | null;
+  mod?: boolean;
+  subscriber?: boolean;
+  bits?: string;
+};
+
 export class TwitchHub extends EventEmitter<HubEvents> {
-  private client: tmi.Client;
-  private isConnected = false;
   private readonly pendingCommunityGifts = new Map<string, { remaining: number; expiresAt: number }>();
 
-  constructor(public readonly channel: string) {
+  constructor(
+    public readonly channel: string,
+    private readonly isConnected: () => boolean
+  ) {
     super();
     this.setMaxListeners(50);
+  }
 
-    this.client = new tmi.Client({
-      options: { debug: false },
-      logger: { info: () => undefined, warn: () => undefined, error: () => undefined },
-      connection: { reconnect: true, secure: true },
-      channels: [channel],
+  get connected(): boolean {
+    return this.isConnected();
+  }
+
+  handleRaw(command: string, tags: Tags, params: unknown[]): void {
+    const streak = parseWatchStreak(command, tags, params);
+    if (streak) this.emit("watchStreak", streak);
+
+    const raid = parseRaid(command, tags);
+    if (raid) this.emit("raid", raid);
+
+    const sub = parseSub(command, tags, params);
+    if (sub) this.emit("sub", sub);
+
+    const gift = parseGiftSub(command, tags);
+    if (gift) this.handleGift(gift);
+  }
+
+  handleChat(userstate: ChatUserstate, text: string): void {
+    const badges = userstate.badges ?? {};
+    const login = userstate.username ?? "";
+    const displayName = userstate["display-name"] ?? login;
+    this.emit("chat", {
+      login,
+      displayName,
+      text,
+      isMod: userstate.mod === true,
+      isBroadcaster: badges.broadcaster === "1",
+      isSubscriber: userstate.subscriber === true,
     });
 
-    this.client.on("raw_message", (_cloned, message) => {
-      const command = String(message.command ?? "");
-      const tags = (message.tags ?? {}) as Tags;
-      const params = (message.params ?? []) as unknown[];
-      const streak = parseWatchStreak(command, tags, params);
-      if (streak) this.emit("watchStreak", streak);
-
-      const raid = parseRaid(command, tags);
-      if (raid) this.emit("raid", raid);
-
-      const sub = parseSub(command, tags, params);
-      if (sub) this.emit("sub", sub);
-
-      const gift = parseGiftSub(command, tags);
-      if (gift) this.handleGift(gift);
-    });
-
-    this.client.on("message", (_channel, userstate, text, self) => {
-      if (self) return;
-      const badges = userstate.badges ?? {};
-      this.emit("chat", {
-        login: userstate.username ?? "",
-        displayName: userstate["display-name"] ?? userstate.username ?? "",
-        text,
-        isMod: userstate.mod === true,
-        isBroadcaster: badges.broadcaster === "1",
-        isSubscriber: userstate.subscriber === true,
-      });
-
-      const bits = Number(userstate.bits ?? 0);
-      if (bits > 0) {
-        this.emit("cheer", {
-          login: userstate.username ?? "",
-          displayName: userstate["display-name"] ?? userstate.username ?? "",
-          bits,
-        });
-      }
-    });
-
-    this.client.on("connected", () => {
-      this.isConnected = true;
-      log("info", "twitch", `Verbunden, lausche in #${channel}`);
-      this.emit("status", true);
-    });
-
-    this.client.on("disconnected", (reason) => {
-      this.isConnected = false;
-      log("warn", "twitch", `Verbindung getrennt: ${reason}`);
-      this.emit("status", false);
-    });
+    const bits = Number(userstate.bits ?? 0);
+    if (bits > 0) this.emit("cheer", { login, displayName, bits });
   }
 
   private handleGift({ community, communityGiftId, gift }: ParsedGift): void {
@@ -226,21 +211,5 @@ export class TwitchHub extends EventEmitter<HubEvents> {
     }
 
     this.emit("giftSub", gift);
-  }
-
-  get connected(): boolean {
-    return this.isConnected;
-  }
-
-  async start(): Promise<void> {
-    try {
-      await this.client.connect();
-    } catch (err) {
-      log("error", "twitch", `Verbindung fehlgeschlagen: ${String(err)}`);
-    }
-  }
-
-  async stop(): Promise<void> {
-    await this.client.disconnect().catch(() => undefined);
   }
 }

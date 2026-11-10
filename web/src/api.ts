@@ -1,4 +1,4 @@
-import type { MediaFile, ModuleView, SettingValue, SummaryView, User } from "./types";
+import type { ManagedChannel, MediaFile, Me, ModuleView, SettingValue, SummaryView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -22,7 +22,15 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export const api = {
-  me: () => request<{ user: User }>("GET", "/api/me"),
+  me: () => request<Me>("GET", "/api/me"),
+  switchChannel: (channel: string) => request<{ channel: string }>("POST", "/api/me/channel", { channel }),
+  listChannels: () => request<{ channels: ManagedChannel[] }>("GET", "/api/channels"),
+  addChannel: (login: string) => request<{ channels: ManagedChannel[] }>("POST", "/api/channels", { login }),
+  removeChannel: (login: string) =>
+    request<{ channels: ManagedChannel[] }>("DELETE", `/api/channels/${encodeURIComponent(login)}`),
+  listAccess: () => request<{ logins: string[] }>("GET", "/api/access"),
+  addAccess: (login: string) => request<{ logins: string[] }>("POST", "/api/access", { login }),
+  removeAccess: (login: string) => request<{ logins: string[] }>("DELETE", `/api/access/${encodeURIComponent(login)}`),
   logout: () => request<{ ok: true }>("POST", "/auth/logout", {}),
   setEnabled: (id: string, enabled: boolean) =>
     request<{ module: ModuleView }>("POST", `/api/modules/${encodeURIComponent(id)}/enabled`, { enabled }),

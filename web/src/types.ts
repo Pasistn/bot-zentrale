@@ -11,6 +11,24 @@ export interface User {
   avatarUrl: string | null;
 }
 
+export interface ChannelInfo {
+  login: string;
+  displayName: string;
+}
+
+export interface Me {
+  user: User;
+  channel: string;
+  channels: ChannelInfo[];
+  owner: boolean;
+  canManageAccess: boolean;
+}
+
+export interface ManagedChannel extends ChannelInfo {
+  createdAt: string;
+  access: string[];
+}
+
 export interface SettingView {
   key: string;
   label: string;

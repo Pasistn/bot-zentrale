@@ -1,5 +1,5 @@
 import { config } from "../config.js";
-import { twitchTokenStore, type TwitchToken } from "../db.js";
+import { accessStore, channelStore, twitchTokenStore, type TwitchToken } from "../db.js";
 import { getUserId } from "./helix.js";
 
 export const LOGIN_SCOPES = ["moderator:read:followers"];
@@ -11,16 +11,23 @@ export interface LoginTokens {
   scopes: string[];
 }
 
+async function tokenTarget(login: string): Promise<string | null> {
+  if (channelStore.get(login)) return login;
+  for (const channel of accessStore.channelsOf(login)) {
+    if (!(await twitchTokenStore.get(channel))) return channel;
+  }
+  return null;
+}
+
 export async function keepLoginToken(login: string, userId: string, tokens: LoginTokens): Promise<boolean> {
   const hasScopes = LOGIN_SCOPES.every((s) => tokens.scopes.includes(s));
   if (!hasScopes || !tokens.refreshToken) return false;
 
-  const existing = await twitchTokenStore.get(config.twitchChannel);
-  const isStreamer = login === config.twitchChannel;
-  if (!isStreamer && existing) return false;
+  const channel = await tokenTarget(login);
+  if (!channel) return false;
 
   await twitchTokenStore.save({
-    login: config.twitchChannel,
+    login: channel,
     userId,
     accessToken: tokens.accessToken,
     refreshToken: tokens.refreshToken,
@@ -58,15 +65,15 @@ async function refresh(token: TwitchToken): Promise<TwitchToken | null> {
   return next;
 }
 
-export async function hasStreamerToken(): Promise<boolean> {
-  return (await twitchTokenStore.get(config.twitchChannel)) !== null;
+export async function hasStreamerToken(channel: string): Promise<boolean> {
+  return (await twitchTokenStore.get(channel)) !== null;
 }
 
-export async function getFollowerCount(): Promise<number | null> {
-  let token = await twitchTokenStore.get(config.twitchChannel);
+export async function getFollowerCount(channel: string): Promise<number | null> {
+  let token = await twitchTokenStore.get(channel);
   if (!token) return null;
 
-  const broadcasterId = await getUserId(config.twitchChannel);
+  const broadcasterId = await getUserId(channel);
   if (!broadcasterId) return null;
 
   for (let attempt = 1; attempt <= 2; attempt++) {

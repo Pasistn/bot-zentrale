@@ -23,7 +23,7 @@ const CLIP_PLACEHOLDER_NAME = "clip-placeholder.png";
 const LIST_LIMIT = 20;
 const TOP_LIMIT = 5;
 
-export const summaryEvents = new EventEmitter<{ changed: [] }>();
+export const summaryEvents = new EventEmitter<{ changed: [channel: string] }>();
 
 export interface SummaryEntry {
   name: string;
@@ -94,7 +94,7 @@ export function summaryText(v: Omit<SummaryView, "text">, options: SummaryOption
 
 async function toView(session: StreamSession): Promise<SummaryView> {
   const until = session.endedAt ?? Date.now();
-  const events = await streamEventStore.between(session.startedAt, until);
+  const events = await streamEventStore.between(session.channel, session.startedAt, until);
 
   const raidList = events
     .filter((e) => e.type === "raid")
@@ -134,15 +134,15 @@ async function toView(session: StreamSession): Promise<SummaryView> {
     postedAt: session.postedAt ? new Date(session.postedAt).toISOString() : null,
     postError: session.postError,
   };
-  return { ...base, text: summaryText(base, summaryOptions(moduleStore.get("stream-summary").settings)) };
+  return { ...base, text: summaryText(base, summaryOptions(moduleStore.get(session.channel, "stream-summary").settings)) };
 }
 
-export async function listSummaries(): Promise<SummaryView[]> {
-  return Promise.all((await streamSessionStore.recent(LIST_LIMIT)).map(toView));
+export async function listSummaries(channel: string): Promise<SummaryView[]> {
+  return Promise.all((await streamSessionStore.recent(channel, LIST_LIMIT)).map(toView));
 }
 
-export async function getSummary(id: number): Promise<SummaryView | null> {
-  const session = await streamSessionStore.get(id);
+export async function getSummary(channel: string, id: number): Promise<SummaryView | null> {
+  const session = await streamSessionStore.get(channel, id);
   return session ? toView(session) : null;
 }
 
@@ -171,7 +171,7 @@ async function pickClip(v: SummaryView, channel: string): Promise<Clip | null> {
     const clips = await getClips(channel, from, until);
     return clips.length > 0 ? clips[Math.floor(Math.random() * clips.length)] : null;
   } catch (err) {
-    log("warn", "stream-summary", `Clips nicht abrufbar: ${err instanceof Error ? err.message : String(err)}`);
+    log("warn", "stream-summary", `Clips nicht abrufbar: ${err instanceof Error ? err.message : String(err)}`, channel);
     return null;
   }
 }
@@ -264,8 +264,8 @@ export async function buildSummaryMessage(
 
 const posting = new Set<number>();
 
-export async function postSummary(id: number, settings: SettingsValues, channel: string): Promise<SummaryView> {
-  const session = await streamSessionStore.get(id);
+export async function postSummary(channel: string, id: number, settings: SettingsValues): Promise<SummaryView> {
+  const session = await streamSessionStore.get(channel, id);
   if (!session) throw new NotFoundError("Diese Zusammenfassung gibt es nicht.");
   if (session.status === "live") throw new ValidationError("Der Stream läuft noch. Die Zusammenfassung ist erst nach dem Stream fertig.");
   if (session.status === "posted") throw new ValidationError("Diese Zusammenfassung wurde schon gepostet.");
@@ -276,27 +276,27 @@ export async function postSummary(id: number, settings: SettingsValues, channel:
     const { payload, files } = await buildSummaryMessage(await toView(session), settings, channel);
     await sendDiscordWebhook(String(settings.webhookUrl), payload, files);
     await streamSessionStore.markPosted(id);
-    log("info", "stream-summary", `Zusammenfassung von ${session.streamer} in Discord gepostet`);
+    log("info", "stream-summary", `Zusammenfassung von ${session.streamer} in Discord gepostet`, channel);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     await streamSessionStore.markFailed(id, message);
-    log("error", "stream-summary", `Zusammenfassung nicht gepostet: ${message}`);
+    log("error", "stream-summary", `Zusammenfassung nicht gepostet: ${message}`, channel);
     throw new ValidationError(message);
   } finally {
     posting.delete(id);
-    summaryEvents.emit("changed");
+    summaryEvents.emit("changed", channel);
   }
-  return (await getSummary(id))!;
+  return (await getSummary(channel, id))!;
 }
 
-export async function discardSummary(id: number): Promise<SummaryView> {
-  const session = await streamSessionStore.get(id);
+export async function discardSummary(channel: string, id: number): Promise<SummaryView> {
+  const session = await streamSessionStore.get(channel, id);
   if (!session) throw new NotFoundError("Diese Zusammenfassung gibt es nicht.");
   if (session.status === "live") throw new ValidationError("Der Stream läuft noch.");
   if (session.status === "posted") throw new ValidationError("Diese Zusammenfassung wurde schon gepostet.");
 
   await streamSessionStore.markDiscarded(id);
-  log("info", "stream-summary", `Zusammenfassung von ${session.streamer} verworfen`);
-  summaryEvents.emit("changed");
-  return (await getSummary(id))!;
+  log("info", "stream-summary", `Zusammenfassung von ${session.streamer} verworfen`, channel);
+  summaryEvents.emit("changed", channel);
+  return (await getSummary(channel, id))!;
 }

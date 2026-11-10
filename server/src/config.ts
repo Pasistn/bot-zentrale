@@ -38,12 +38,17 @@ if (sessionSecret.length < 32) {
   fail("SESSION_SECRET muss mindestens 32 Zeichen lang sein. Erzeuge eins mit: npm run secret");
 }
 
-const adminLogins = required("ADMIN_LOGINS")
-  .split(",")
-  .map((login) => login.trim().toLowerCase())
-  .filter(Boolean);
+function logins(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((login) => login.trim().toLowerCase().replace(/^[@#]/, ""))
+    .filter(Boolean);
+}
 
-if (adminLogins.length === 0) fail("ADMIN_LOGINS muss mindestens einen Twitch-Namen enthalten.");
+const ownerLogins = logins(process.env.OWNER_LOGINS || process.env.ADMIN_LOGINS);
+if (ownerLogins.length === 0) fail("OWNER_LOGINS muss mindestens einen Twitch-Namen enthalten.");
+
+const ownChannel = process.env.TWITCH_CHANNEL?.trim().toLowerCase().replace(/^#/, "") || null;
 
 const dbPath = resolve(rootDir, process.env.DB_PATH?.trim() || "data/bot.db");
 
@@ -56,8 +61,8 @@ export const config = {
   secureCookies: publicUrl.startsWith("https://"),
   twitchClientId: required("TWITCH_CLIENT_ID"),
   twitchClientSecret: required("TWITCH_CLIENT_SECRET"),
-  twitchChannel: required("TWITCH_CHANNEL").toLowerCase().replace(/^#/, ""),
-  adminLogins,
+  ownChannel,
+  ownerLogins,
   sessionSecret,
   sessionDays: optionalNumber("SESSION_DAYS", 7),
   dbPath,

@@ -1,8 +1,8 @@
 import { EventEmitter } from "node:events";
 import { config } from "../config.js";
-import { moduleStore, overlayTokenStore } from "../db.js";
+import { channelStore, moduleStore } from "../db.js";
 import { mediaKind } from "../media.js";
-import { log } from "../logger.js";
+import { log as writeLog, type LogLevel } from "../logger.js";
 import type { StreamTracker } from "../stream/tracker.js";
 import type { TwitchHub } from "../twitch/hub.js";
 import type { HubEvents } from "../twitch/types.js";
@@ -33,6 +33,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
   private readonly runtimes = new Map<string, Runtime>();
 
   constructor(
+    public readonly channel: string,
     private readonly hub: TwitchHub,
     private readonly tracker: StreamTracker,
     modules: BotModule[]
@@ -47,7 +48,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
 
   async init(): Promise<void> {
     for (const mod of this.modules.values()) {
-      if (moduleStore.get(mod.id).enabled) {
+      if (moduleStore.get(this.channel, mod.id).enabled) {
         await this.serialize(mod.id, () => this.startModule(mod));
       }
     }
@@ -75,13 +76,13 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
   async setEnabled(id: string, enabled: boolean): Promise<ModuleView> {
     const mod = this.require(id);
     await this.serialize(id, async () => {
-      await moduleStore.setEnabled(id, enabled);
+      await moduleStore.setEnabled(this.channel, id, enabled);
       if (enabled) {
-        log("info", mod.id, "Modul wird aktiviert");
+        this.log("info", mod.id, "Modul wird aktiviert");
         await this.stopModule(mod);
         await this.startModule(mod);
       } else {
-        log("info", mod.id, "Modul wird deaktiviert");
+        this.log("info", mod.id, "Modul wird deaktiviert");
         await this.stopModule(mod);
       }
     });
@@ -106,9 +107,9 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
     }
 
     await this.serialize(id, async () => {
-      await moduleStore.setSettings(id, next);
-      log("info", mod.id, "Einstellungen gespeichert");
-      if (moduleStore.get(id).enabled) {
+      await moduleStore.setSettings(this.channel, id, next);
+      this.log("info", mod.id, "Einstellungen gespeichert");
+      if (moduleStore.get(this.channel, id).enabled) {
         await this.stopModule(mod);
         await this.startModule(mod);
       }
@@ -135,14 +136,18 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
     const ctx = this.createContext(mod, settings, null);
     try {
       const result = await action.run(ctx);
-      log("info", mod.id, `${action.label}: ${result}`);
+      this.log("info", mod.id, `${action.label}: ${result}`);
       this.emit("changed");
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      log("error", mod.id, `${action.label} fehlgeschlagen: ${message}`);
+      this.log("error", mod.id, `${action.label} fehlgeschlagen: ${message}`);
       throw new ValidationError(message);
     }
+  }
+
+  private log(level: LogLevel, source: string, message: string): void {
+    writeLog(level, source, message, this.channel);
   }
 
   private require(id: string): BotModule {
@@ -163,7 +168,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
   }
 
   private resolveSettings(mod: BotModule): SettingsValues {
-    const stored = moduleStore.get(mod.id).settings;
+    const stored = moduleStore.get(this.channel, mod.id).settings;
     const values: SettingsValues = {};
     for (const field of mod.settings) {
       const raw = stored[field.key];
@@ -246,18 +251,19 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
   private createContext(mod: BotModule, settings: SettingsValues, rt: Runtime | null): ModuleContext {
     const hub = this.hub;
     const tracker = this.tracker;
+    const channel = this.channel;
     return {
-      channel: hub.channel,
+      channel,
       liveStream: () => tracker.live,
       settings: Object.freeze({ ...settings }),
-      log: (level, message) => log(level, mod.id, message),
+      log: (level, message) => writeLog(level, mod.id, message, channel),
       on(event, handler) {
         if (!rt) return;
         const safeHandler = (...args: Parameters<typeof handler>) => {
           try {
             handler(...args);
           } catch (err) {
-            log("error", mod.id, `Fehler bei „${event}“: ${err instanceof Error ? err.message : String(err)}`);
+            writeLog("error", mod.id, `Fehler bei „${event}“: ${err instanceof Error ? err.message : String(err)}`, channel);
           }
         };
         hub.on(event, safeHandler as never);
@@ -274,7 +280,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
     if (missing) {
       rt.status = "error";
       rt.error = missing;
-      log("warn", mod.id, `Nicht gestartet: ${missing}`);
+      this.log("warn", mod.id, `Nicht gestartet: ${missing}`);
       return;
     }
 
@@ -282,12 +288,12 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
       await mod.start(this.createContext(mod, settings, rt));
       rt.status = "running";
       rt.error = null;
-      log("info", mod.id, "Läuft");
+      this.log("info", mod.id, "Läuft");
     } catch (err) {
       this.removeListeners(rt);
       rt.status = "error";
       rt.error = err instanceof Error ? err.message : String(err);
-      log("error", mod.id, `Start fehlgeschlagen: ${rt.error}`);
+      this.log("error", mod.id, `Start fehlgeschlagen: ${rt.error}`);
     }
   }
 
@@ -298,7 +304,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
       try {
         await mod.stop?.();
       } catch (err) {
-        log("error", mod.id, `Fehler beim Stoppen: ${err instanceof Error ? err.message : String(err)}`);
+        this.log("error", mod.id, `Fehler beim Stoppen: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     rt.status = "stopped";
@@ -314,7 +320,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
 
   private view(mod: BotModule): ModuleView {
     const rt = this.runtime(mod.id);
-    const stored = moduleStore.get(mod.id);
+    const stored = moduleStore.get(this.channel, mod.id);
     const settings = this.resolveSettings(mod);
 
     return {
@@ -344,7 +350,7 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
       }),
       actions: (mod.actions ?? []).map((a) => ({ id: a.id, label: a.label })),
       overlayUrl: mod.overlayPath
-        ? `${config.publicUrl}${mod.overlayPath}?token=${encodeURIComponent(overlayTokenStore.get())}`
+        ? `${config.publicUrl}${mod.overlayPath}?token=${encodeURIComponent(channelStore.get(this.channel)?.overlayToken ?? "")}`
         : null,
     };
   }

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { config } from "./config.js";
 
@@ -56,9 +56,28 @@ export function mediaMime(file: string): string {
   return typeOfFile(file)?.mime ?? "application/octet-stream";
 }
 
-export function mediaPath(file: string): string {
+function channelDir(channel: string): string {
+  if (!/^[a-z0-9_]{1,25}$/.test(channel)) throw new MediaError("Ungültiger Kanal.");
+  return resolve(config.mediaDir, channel);
+}
+
+export function mediaPath(channel: string, file: string): string {
   if (!isMediaFile(file)) throw new MediaError("Ungültiger Dateiname.");
-  return resolve(config.mediaDir, file);
+  return resolve(channelDir(channel), file);
+}
+
+export async function adoptLegacyMedia(channel: string): Promise<number> {
+  let files: string[];
+  try {
+    files = await readdir(config.mediaDir);
+  } catch {
+    return 0;
+  }
+  const legacy = files.filter(isMediaFile);
+  if (legacy.length === 0) return 0;
+  await mkdir(channelDir(channel), { recursive: true });
+  for (const file of legacy) await rename(resolve(config.mediaDir, file), mediaPath(channel, file));
+  return legacy.length;
 }
 
 export function mediaUrl(file: string): string | null {
@@ -79,7 +98,7 @@ function slug(name: string): string {
   return clean || "datei";
 }
 
-export async function saveMedia(originalName: string, data: Buffer): Promise<MediaFile> {
+export async function saveMedia(channel: string, originalName: string, data: Buffer): Promise<MediaFile> {
   if (data.length === 0) throw new MediaError("Die Datei ist leer.");
   if (data.length > MAX_MEDIA_BYTES) throw new MediaError("Die Datei ist größer als 25 MB.");
   const type = data.length >= 12 ? TYPES.find((t) => t.matches(data)) : undefined;
@@ -89,30 +108,30 @@ export async function saveMedia(originalName: string, data: Buffer): Promise<Med
 
   const name = slug(originalName);
   const file = `${randomBytes(6).toString("hex")}--${name}.${type.ext}`;
-  await mkdir(config.mediaDir, { recursive: true });
-  await writeFile(resolve(config.mediaDir, file), data);
+  await mkdir(channelDir(channel), { recursive: true });
+  await writeFile(mediaPath(channel, file), data);
   return { file, name, kind: type.kind, size: data.length };
 }
 
-export async function listMedia(): Promise<MediaFile[]> {
+export async function listMedia(channel: string): Promise<MediaFile[]> {
   let files: string[];
   try {
-    files = await readdir(config.mediaDir);
+    files = await readdir(channelDir(channel));
   } catch {
     return [];
   }
   const list: MediaFile[] = [];
   for (const file of files) {
     if (!isMediaFile(file)) continue;
-    const info = await stat(resolve(config.mediaDir, file)).catch(() => null);
+    const info = await stat(mediaPath(channel, file)).catch(() => null);
     if (!info) continue;
     list.push({ file, name: file.slice(14).replace(/\.[^.]+$/, ""), kind: typeOfFile(file)!.kind, size: info.size });
   }
   return list.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-export async function deleteMedia(file: string): Promise<void> {
-  await unlink(mediaPath(file)).catch((err: NodeJS.ErrnoException) => {
+export async function deleteMedia(channel: string, file: string): Promise<void> {
+  await unlink(mediaPath(channel, file)).catch((err: NodeJS.ErrnoException) => {
     if (err.code !== "ENOENT") throw err;
   });
 }

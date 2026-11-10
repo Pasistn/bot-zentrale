@@ -1,67 +1,88 @@
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
-import { isAllowedOrigin, userFromRequest } from "../auth.js";
+import { isAllowedOrigin, sessionFromRequest } from "../auth.js";
+import type { ChannelRegistry } from "../channels.js";
 import { logEvents, recentLogs, type LogEntry } from "../logger.js";
-import type { ModuleManager } from "../modules/manager.js";
 import { getStatsOverview } from "../stream/stats.js";
 import { listSummaries, summaryEvents } from "../summaries.js";
-import type { TwitchHub } from "../twitch/hub.js";
+import type { TwitchChat } from "../twitch/chat.js";
+
+const CLOSE_CHANNEL_REMOVED = 4003;
 
 export async function liveRoutes(
   app: FastifyInstance,
-  opts: { manager: ModuleManager; hub: TwitchHub }
+  opts: { registry: ChannelRegistry; chat: TwitchChat }
 ): Promise<void> {
-  const { manager, hub } = opts;
-  const clients = new Set<WebSocket>();
+  const { registry, chat } = opts;
+  const clients = new Map<WebSocket, string>();
 
-  function broadcast(message: unknown): void {
+  function broadcast(channel: string, message: unknown): void {
     const data = JSON.stringify(message);
-    for (const socket of clients) {
-      if (socket.readyState === socket.OPEN) socket.send(data);
+    for (const [socket, ch] of clients) {
+      if (ch === channel && socket.readyState === socket.OPEN) socket.send(data);
     }
   }
 
-  const onLog = (entry: LogEntry) => broadcast({ type: "log", entry });
-  let summaryTimer: NodeJS.Timeout | null = null;
-  const onSummaries = () => {
-    if (clients.size === 0 || summaryTimer) return;
-    summaryTimer = setTimeout(async () => {
-      summaryTimer = null;
-      try {
-        const [summaries, stats] = await Promise.all([listSummaries(), getStatsOverview()]);
-        broadcast({ type: "summaries", summaries });
-        broadcast({ type: "stats", stats });
-      } catch (err) {
-        app.log.error(err);
-      }
-    }, 1000);
+  const watched = (channel: string) => [...clients.values()].includes(channel);
+
+  const onLog = (channel: string, entry: LogEntry) => broadcast(channel, { type: "log", entry });
+
+  const summaryTimers = new Map<string, NodeJS.Timeout>();
+  const onSummaries = (channel: string) => {
+    if (!watched(channel) || summaryTimers.has(channel)) return;
+    summaryTimers.set(
+      channel,
+      setTimeout(async () => {
+        summaryTimers.delete(channel);
+        try {
+          const [summaries, stats] = await Promise.all([listSummaries(channel), getStatsOverview(channel)]);
+          broadcast(channel, { type: "summaries", summaries });
+          broadcast(channel, { type: "stats", stats });
+        } catch (err) {
+          app.log.error(err);
+        }
+      }, 1000)
+    );
   };
-  const onModules = () => {
-    broadcast({ type: "modules", modules: manager.list() });
-    onSummaries();
+
+  const onModules = (channel: string) => {
+    const runtime = registry.get(channel);
+    if (!runtime || !watched(channel)) return;
+    broadcast(channel, { type: "modules", modules: runtime.manager.list() });
+    onSummaries(channel);
   };
-  const onStatus = (connected: boolean) =>
-    broadcast({ type: "twitch", twitch: { connected, channel: hub.channel } });
+
+  const onStatus = (connected: boolean) => {
+    for (const channel of new Set(clients.values())) broadcast(channel, { type: "twitch", twitch: { connected, channel } });
+  };
+
+  const onRemoved = (channel: string) => {
+    for (const [socket, ch] of clients) {
+      if (ch === channel) socket.close(CLOSE_CHANNEL_REMOVED, "Kanal entfernt");
+    }
+  };
 
   logEvents.on("entry", onLog);
-  manager.on("changed", onModules);
-  hub.on("status", onStatus);
+  registry.on("modules", onModules);
+  registry.on("removed", onRemoved);
+  chat.on("status", onStatus);
   summaryEvents.on("changed", onSummaries);
 
   const heartbeat = setInterval(() => {
-    for (const socket of clients) {
+    for (const socket of clients.keys()) {
       if (socket.readyState === socket.OPEN) socket.ping();
     }
   }, 30_000);
 
   app.addHook("onClose", async () => {
     clearInterval(heartbeat);
-    if (summaryTimer) clearTimeout(summaryTimer);
+    for (const timer of summaryTimers.values()) clearTimeout(timer);
     logEvents.off("entry", onLog);
-    manager.off("changed", onModules);
-    hub.off("status", onStatus);
+    registry.off("modules", onModules);
+    registry.off("removed", onRemoved);
+    chat.off("status", onStatus);
     summaryEvents.off("changed", onSummaries);
-    for (const socket of clients) socket.close(1001, "Server wird beendet");
+    for (const socket of clients.keys()) socket.close(1001, "Server wird beendet");
   });
 
   app.get(
@@ -73,28 +94,32 @@ export async function liveRoutes(
           await reply.code(403).send({ error: "Ungültige Herkunft." });
           return;
         }
-        const user = await userFromRequest(request);
-        if (!user) {
+        const session = await sessionFromRequest(request);
+        if (!session) {
           await reply.code(401).send({ error: "Nicht angemeldet." });
           return;
         }
-        request.user = user;
+        request.user = session.user;
+        request.channel = session.channel;
       },
     },
-    async (socket) => {
-      clients.add(socket);
+    async (socket, request) => {
+      const channel = request.channel;
+      clients.set(socket, channel);
       socket.on("close", () => clients.delete(socket));
       socket.on("error", () => clients.delete(socket));
-      const [summaries, stats] = await Promise.all([listSummaries(), getStatsOverview()]);
+
+      const runtime = registry.get(channel);
+      const [summaries, stats] = await Promise.all([listSummaries(channel), getStatsOverview(channel)]);
       if (socket.readyState !== socket.OPEN) return;
       socket.send(
         JSON.stringify({
           type: "snapshot",
-          modules: manager.list(),
-          logs: recentLogs(),
+          modules: runtime?.manager.list() ?? [],
+          logs: recentLogs(channel),
           summaries,
           stats,
-          twitch: { connected: hub.connected, channel: hub.channel },
+          twitch: { connected: chat.connected, channel },
         })
       );
     }

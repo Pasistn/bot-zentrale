@@ -1,9 +1,10 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isAllowedOrigin, requireAuth } from "../auth.js";
+import type { ChannelRegistry, ChannelRuntime } from "../channels.js";
 import { recentLogs } from "../logger.js";
 import { getStatsOverview } from "../stream/stats.js";
-import { NotFoundError, ValidationError, type ModuleManager } from "../modules/manager.js";
-import type { TwitchHub } from "../twitch/hub.js";
+import { NotFoundError, ValidationError } from "../modules/manager.js";
+import type { TwitchChat } from "../twitch/chat.js";
 
 export function handleError(reply: FastifyReply, err: unknown) {
   if (err instanceof NotFoundError) return reply.code(404).send({ error: err.message });
@@ -11,12 +12,15 @@ export function handleError(reply: FastifyReply, err: unknown) {
   throw err;
 }
 
-export async function moduleRoutes(
-  app: FastifyInstance,
-  opts: { manager: ModuleManager; hub: TwitchHub }
-): Promise<void> {
-  const { manager, hub } = opts;
+export class ChannelUnavailableError extends Error {}
 
+export function runtimeFor(registry: ChannelRegistry, request: FastifyRequest): ChannelRuntime {
+  const runtime = registry.get(request.channel);
+  if (!runtime) throw new ChannelUnavailableError("Der Kanal ist gerade nicht aktiv.");
+  return runtime;
+}
+
+export async function protectedRoutes(app: FastifyInstance): Promise<void> {
   app.addHook("preHandler", requireAuth);
 
   app.addHook("preHandler", async (request, reply) => {
@@ -25,15 +29,28 @@ export async function moduleRoutes(
     }
   });
 
-  app.get("/api/status", async () => ({
-    twitch: { connected: hub.connected, channel: hub.channel },
+  app.setErrorHandler((err, _request, reply) => {
+    if (err instanceof ChannelUnavailableError) return reply.code(503).send({ error: err.message });
+    throw err;
+  });
+}
+
+export async function moduleRoutes(
+  app: FastifyInstance,
+  opts: { registry: ChannelRegistry; chat: TwitchChat }
+): Promise<void> {
+  const { registry, chat } = opts;
+  await protectedRoutes(app);
+
+  app.get("/api/status", async (request) => ({
+    twitch: { connected: chat.connected, channel: request.channel },
   }));
 
-  app.get("/api/modules", async () => ({ modules: manager.list() }));
+  app.get("/api/modules", async (request) => ({ modules: runtimeFor(registry, request).manager.list() }));
 
-  app.get("/api/logs", async () => ({ logs: recentLogs() }));
+  app.get("/api/logs", async (request) => ({ logs: recentLogs(request.channel) }));
 
-  app.get("/api/stats", async () => ({ stats: await getStatsOverview() }));
+  app.get("/api/stats", async (request) => ({ stats: await getStatsOverview(request.channel) }));
 
   app.post<{ Params: { id: string }; Body: { enabled?: unknown } }>(
     "/api/modules/:id/enabled",
@@ -43,7 +60,7 @@ export async function moduleRoutes(
         return reply.code(400).send({ error: "„enabled“ muss true oder false sein." });
       }
       try {
-        return { module: await manager.setEnabled(request.params.id, enabled) };
+        return { module: await runtimeFor(registry, request).manager.setEnabled(request.params.id, enabled) };
       } catch (err) {
         return handleError(reply, err);
       }
@@ -52,7 +69,7 @@ export async function moduleRoutes(
 
   app.put<{ Params: { id: string }; Body: unknown }>("/api/modules/:id/settings", async (request, reply) => {
     try {
-      return { module: await manager.updateSettings(request.params.id, request.body) };
+      return { module: await runtimeFor(registry, request).manager.updateSettings(request.params.id, request.body) };
     } catch (err) {
       return handleError(reply, err);
     }
@@ -62,7 +79,7 @@ export async function moduleRoutes(
     "/api/modules/:id/actions/:actionId",
     async (request, reply) => {
       try {
-        const message = await manager.runAction(request.params.id, request.params.actionId);
+        const message = await runtimeFor(registry, request).manager.runAction(request.params.id, request.params.actionId);
         return { message };
       } catch (err) {
         return handleError(reply, err);

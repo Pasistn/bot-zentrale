@@ -56,20 +56,26 @@ export interface LayoutEntry {
   height: number;
 }
 
-const states = new Map<OverlayChannel, unknown>();
+const states = new Map<string, Map<OverlayChannel, unknown>>();
 
-export const overlayBus = new EventEmitter<{ message: [channel: OverlayChannel, data: unknown] }>();
+export const overlayBus = new EventEmitter<{ message: [channel: string, id: OverlayChannel, data: unknown] }>();
 
-export function setOverlayState(channel: OverlayChannel, state: unknown): void {
-  if (JSON.stringify(states.get(channel)) === JSON.stringify(state)) return;
-  states.set(channel, state);
-  overlayBus.emit("message", channel, state);
+export function setOverlayState(channel: string, id: OverlayChannel, state: unknown): void {
+  const channelStates = states.get(channel) ?? new Map<OverlayChannel, unknown>();
+  if (JSON.stringify(channelStates.get(id)) === JSON.stringify(state)) return;
+  channelStates.set(id, state);
+  states.set(channel, channelStates);
+  overlayBus.emit("message", channel, id, state);
 }
 
-export function overlayState(channel: OverlayChannel): unknown {
-  return states.get(channel);
+export function overlayState(channel: string, id: OverlayChannel): unknown {
+  return states.get(channel)?.get(id);
 }
 
-export function sendToOverlay(id: OverlayId, data: unknown): void {
-  overlayBus.emit("message", id, data);
+export function clearOverlayStates(channel: string): void {
+  states.delete(channel);
+}
+
+export function sendToOverlay(channel: string, id: OverlayId, data: unknown): void {
+  overlayBus.emit("message", channel, id, data);
 }

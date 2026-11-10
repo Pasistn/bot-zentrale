@@ -1,12 +1,11 @@
-import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { FastifyInstance } from "fastify";
 import type { WebSocket } from "ws";
 import { isAllowedOrigin, requireAuth } from "../auth.js";
+import type { ChannelRegistry } from "../channels.js";
 import { rootDir } from "../config.js";
-import { overlayTokenStore } from "../db.js";
-import type { ModuleManager } from "../modules/manager.js";
+import { channelStore } from "../db.js";
 import {
   OVERLAY_IDS,
   OVERLAY_SIZES,
@@ -23,11 +22,9 @@ const OVERLAY_DIR = resolve(rootDir, "server/assets/overlays");
 
 const CLOSE_INVALID_TOKEN = 4001;
 
-export function validToken(token: unknown): boolean {
-  if (typeof token !== "string") return false;
-  const expected = Buffer.from(overlayTokenStore.get());
-  const given = Buffer.from(token);
-  return given.length === expected.length && timingSafeEqual(given, expected);
+export function channelForToken(token: unknown): string | null {
+  if (typeof token !== "string" || token.length < 20) return null;
+  return channelStore.byOverlayToken(token)?.login ?? null;
 }
 
 function isOverlayId(id: string): id is OverlayId {
@@ -38,20 +35,23 @@ function isChannel(id: string): id is OverlayChannel {
   return id === "layout" || isOverlayId(id);
 }
 
-export async function overlayRoutes(app: FastifyInstance, opts: { manager: ModuleManager }): Promise<void> {
-  const clients = new Map<WebSocket, { id: OverlayChannel; token: string }>();
+export async function overlayRoutes(app: FastifyInstance, opts: { registry: ChannelRegistry }): Promise<void> {
+  const { registry } = opts;
+  const clients = new Map<WebSocket, { channel: string; id: OverlayChannel; token: string }>();
 
-  const onMessage = (id: OverlayChannel, data: unknown) => {
+  const onMessage = (channel: string, id: OverlayChannel, data: unknown) => {
     const json = JSON.stringify(data);
     for (const [socket, client] of clients) {
-      if (client.id === id && socket.readyState === socket.OPEN) socket.send(json);
+      if (client.channel === channel && client.id === id && socket.readyState === socket.OPEN) socket.send(json);
     }
   };
   overlayBus.on("message", onMessage);
 
-  const publishLayout = () => {
+  const publishLayout = (channel: string) => {
+    const runtime = registry.get(channel);
+    if (!runtime) return;
     const layout: LayoutEntry[] = [];
-    for (const mod of opts.manager.list()) {
+    for (const mod of runtime.manager.list()) {
       if (!mod.overlayUrl) continue;
       const id = new URL(mod.overlayUrl).pathname.split("/").pop() ?? "";
       if (!isOverlayId(id)) continue;
@@ -64,17 +64,18 @@ export async function overlayRoutes(app: FastifyInstance, opts: { manager: Modul
         ...OVERLAY_SIZES[id],
       });
     }
-    setOverlayState("layout", layout);
+    setOverlayState(channel, "layout", layout);
   };
-  publishLayout();
-  opts.manager.on("changed", publishLayout);
+  registry.on("modules", publishLayout);
 
-  function closeOutdated(): void {
-    const token = overlayTokenStore.get();
+  function closeOutdated(channel: string): void {
+    const token = channelStore.get(channel)?.overlayToken;
     for (const [socket, client] of clients) {
-      if (client.token !== token) socket.close(CLOSE_INVALID_TOKEN, "Link erneuert");
+      if (client.channel === channel && client.token !== token) socket.close(CLOSE_INVALID_TOKEN, "Link ungültig");
     }
   }
+  const onRemoved = (channel: string) => closeOutdated(channel);
+  registry.on("removed", onRemoved);
 
   const heartbeat = setInterval(() => {
     for (const socket of clients.keys()) {
@@ -85,12 +86,13 @@ export async function overlayRoutes(app: FastifyInstance, opts: { manager: Modul
   app.addHook("onClose", async () => {
     clearInterval(heartbeat);
     overlayBus.off("message", onMessage);
-    opts.manager.off("changed", publishLayout);
+    registry.off("modules", publishLayout);
+    registry.off("removed", onRemoved);
     for (const socket of clients.keys()) socket.close(1001, "Server wird beendet");
   });
 
   app.get<{ Querystring: { token?: string } }>("/overlay", async (request, reply) => {
-    if (!validToken(request.query.token)) {
+    if (!channelForToken(request.query.token)) {
       return reply
         .code(403)
         .type("text/plain; charset=utf-8")
@@ -117,7 +119,7 @@ export async function overlayRoutes(app: FastifyInstance, opts: { manager: Modul
   app.get<{ Params: { id: string }; Querystring: { token?: string } }>("/overlay/:id", async (request, reply) => {
     const { id } = request.params;
     if (!isOverlayId(id)) return reply.code(404).type("text/plain; charset=utf-8").send("Dieses Overlay gibt es nicht.");
-    if (!validToken(request.query.token)) {
+    if (!channelForToken(request.query.token)) {
       return reply
         .code(403)
         .type("text/plain; charset=utf-8")
@@ -133,12 +135,13 @@ export async function overlayRoutes(app: FastifyInstance, opts: { manager: Modul
     (socket, request) => {
       const { id } = request.params;
       const token = request.query.token;
-      if (!isChannel(id) || !validToken(token)) {
+      const channel = channelForToken(token);
+      if (!isChannel(id) || !channel) {
         socket.close(CLOSE_INVALID_TOKEN, "Ungültiger Link");
         return;
       }
-      clients.set(socket, { id, token: token as string });
-      const state = overlayState(id);
+      clients.set(socket, { channel, id, token: token as string });
+      const state = overlayState(channel, id);
       if (state !== undefined) socket.send(JSON.stringify(state));
       socket.on("close", () => clients.delete(socket));
       socket.on("error", () => clients.delete(socket));
@@ -147,9 +150,9 @@ export async function overlayRoutes(app: FastifyInstance, opts: { manager: Modul
 
   app.post("/api/overlays/renew-token", { preHandler: requireAuth }, async (request, reply) => {
     if (!isAllowedOrigin(request)) return reply.code(403).send({ error: "Ungültige Herkunft." });
-    await overlayTokenStore.renew();
-    closeOutdated();
-    opts.manager.notifyChanged();
+    await channelStore.renewToken(request.channel);
+    closeOutdated(request.channel);
+    registry.get(request.channel)?.manager.notifyChanged();
     return { message: "Neue Links erstellt. Die alten funktionieren nicht mehr, trag die neuen in OBS ein." };
   });
 }

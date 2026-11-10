@@ -1,6 +1,6 @@
 # Bot-Zentrale
 
-Twitch-Bot mit Web-Dashboard. Login über Twitch, Funktionen lassen sich als Module einzeln an- und ausschalten und im Dashboard konfigurieren. Läuft als Node-Server im Browser oder als Windows-Desktop-App mit Auto-Update.
+Twitch-Bot mit Web-Dashboard für mehrere Streamer. Ein Server, eine Twitch-Anwendung: Freigeschaltete Streamer melden sich mit ihrem Twitch-Account an und bekommen ihren eigenen Bereich mit eigenen Modulen, Overlays und Statistiken. Funktionen lassen sich als Module einzeln an- und ausschalten und im Dashboard konfigurieren.
 
 ## Module
 
@@ -45,15 +45,15 @@ cp .env.example .env
 npm run secret
 ```
 
-Die Ausgabe von `npm run secret` kommt in `SESSION_SECRET`. In der `.env` außerdem Client-ID, Secret, Kanal und `ADMIN_LOGINS` eintragen.
+Die Ausgabe von `npm run secret` kommt in `SESSION_SECRET`. In der `.env` außerdem Client-ID, Secret und `OWNER_LOGINS` eintragen.
 
 | Variable | |
 |---|---|
 | `PUBLIC_URL` | Adresse des Dashboards. Entwicklung `http://localhost:5173`, Build `http://localhost:3000` |
 | `PORT`, `HOST` | Standard `3000` und `127.0.0.1` |
 | `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | Aus der Twitch-Konsole |
-| `TWITCH_CHANNEL` | Kanal, dessen Chat gelesen wird |
-| `ADMIN_LOGINS` | Twitch-Namen mit Zugriff aufs Dashboard, kommagetrennt |
+| `OWNER_LOGINS` | Betreiber der Zentrale, kommagetrennt. Sie schalten Streamer frei und sehen alle Kanäle |
+| `TWITCH_CHANNEL` | Optional: eigener Kanal, wird beim Start automatisch freigeschaltet |
 | `SESSION_SECRET` | Mindestens 32 Zeichen |
 | `SESSION_DAYS` | Gültigkeit der Sitzung, Standard 7 |
 | `DB_PATH` | SQLite-Datei, Standard `data/bot.db` |
@@ -92,15 +92,24 @@ Für Auto-Updates in `desktop/package.json` unter `build.publish` die Update-URL
 
 Der Installer ist nicht signiert, Windows SmartScreen fragt deshalb bei der ersten Installation nach.
 
+## Mehrere Streamer
+
+Im Reiter **Zugriff** schalten Betreiber neue Streamer frei. Der Bot tritt dann dem Chat des Kanals bei, und der Streamer kann sich anmelden. Jeder Streamer kann dort außerdem Mods eintragen, die sein Dashboard mitbenutzen dürfen. Wer Zugriff auf mehrere Kanäle hat, wechselt oben rechts.
+
+Alle Kanäle teilen sich eine Chat-Verbindung. Pro Kanal gibt es eigene Moduleinstellungen, Statistiken, Medien, Overlay-Links und ein eigenes Protokoll. Die Trennung passiert serverseitig über die Sitzung, nicht über Parameter aus dem Browser.
+
+Bestehende Daten aus der Version für einen Kanal werden beim ersten Start automatisch `TWITCH_CHANNEL` (sonst dem ersten Eintrag aus `OWNER_LOGINS`) zugeordnet. Vorher legt der Server eine Sicherung als `bot.vor-umbau.db` an. Overlay-Links bleiben gültig.
+
 ## Aufbau
 
 ```
 server/src/
   index.ts          Startpunkt
   config.ts         .env lesen und prüfen
+  channels.ts       Kanäle starten und stoppen, Zugriffsregeln
   auth.ts           Twitch-OAuth, Sitzungen
   db.ts, db/        SQLite/Postgres
-  twitch/           Chat-Verbindung (hub.ts), Helix-API, Streamer-Token
+  twitch/           Chat-Verbindung (chat.ts), Ereignisse pro Kanal (hub.ts), Helix-API, Streamer-Token
   stream/           Stream-Erfassung und Statistik
   modules/          Module und Modul-Manager
   overlays/         Verteilung an OBS-Overlays

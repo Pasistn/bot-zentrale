@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { api, ApiError } from "./api";
-import type { User } from "./types";
+import type { Me } from "./types";
 import LoginScreen from "./components/LoginScreen.vue";
 import Dashboard from "./components/Dashboard.vue";
 
-const user = ref<User | null>(null);
+const me = ref<Me | null>(null);
 const checking = ref(true);
 const loginError = ref<string | null>(null);
 
 const loginErrors: Record<string, string> = {
   denied: "Die Anmeldung wurde bei Twitch abgebrochen.",
-  forbidden: "Dieser Twitch-Account hat keinen Zugriff. Trag ihn in ADMIN_LOGINS in der .env ein.",
+  forbidden: "Dieser Twitch-Account ist nicht freigeschaltet. Frag beim Betreiber der Zentrale nach.",
   state: "Die Anmeldung ist abgelaufen. Starte sie neu.",
   twitch: "Twitch hat die Anmeldung nicht bestätigt. Prüfe Client-ID, Client-Secret und Redirect-URL.",
 };
@@ -27,9 +27,9 @@ function readLoginError() {
 async function loadUser() {
   checking.value = true;
   try {
-    user.value = (await api.me()).user;
+    me.value = await api.me();
   } catch (err) {
-    user.value = null;
+    me.value = null;
     if (!(err instanceof ApiError && err.status === 401)) {
       loginError.value = "Der Bot-Server antwortet nicht. Läuft er?";
     }
@@ -38,13 +38,17 @@ async function loadUser() {
   }
 }
 
+async function refresh() {
+  me.value = await api.me().catch(() => me.value);
+}
+
 async function logout() {
   await api.logout().catch(() => undefined);
-  user.value = null;
+  me.value = null;
 }
 
 function sessionLost() {
-  user.value = null;
+  me.value = null;
   loginError.value = "Deine Sitzung ist abgelaufen. Melde dich neu an.";
 }
 
@@ -56,8 +60,8 @@ onMounted(() => {
 
 <template>
   <div v-if="checking" class="boot" aria-live="polite">Verbinde …</div>
-  <LoginScreen v-else-if="!user" :error="loginError" @retry="loadUser" />
-  <Dashboard v-else :user="user" @logout="logout" @session-lost="sessionLost" />
+  <LoginScreen v-else-if="!me" :error="loginError" @retry="loadUser" />
+  <Dashboard v-else :me="me" @logout="logout" @session-lost="sessionLost" @refresh="refresh" />
 </template>
 
 <style scoped>

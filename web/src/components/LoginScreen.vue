@@ -22,7 +22,7 @@ defineEmits<{ retry: [] }>();
         Mit Twitch anmelden
       </a>
 
-      <p class="hint">Zugriff haben nur Twitch-Accounts, die in der Konfiguration freigegeben sind.</p>
+      <p class="hint">Zugriff haben nur freigeschaltete Streamer und die Mods, denen sie Zugriff gegeben haben.</p>
     </div>
   </main>
 </template>

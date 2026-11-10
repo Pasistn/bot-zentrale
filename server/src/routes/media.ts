@@ -1,10 +1,10 @@
 import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
-import { isAllowedOrigin, requireAuth, userFromRequest } from "../auth.js";
+import { isAllowedOrigin, requireAuth, sessionFromRequest } from "../auth.js";
 import { log } from "../logger.js";
 import { deleteMedia, isMediaFile, listMedia, MAX_MEDIA_BYTES, MediaError, mediaMime, mediaPath, saveMedia } from "../media.js";
-import { validToken } from "./overlays.js";
+import { channelForToken } from "./overlays.js";
 
 async function requireOrigin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
   if (!isAllowedOrigin(request)) await reply.code(403).send({ error: "Ungültige Herkunft." });
@@ -15,7 +15,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     done(null, body)
   );
 
-  app.get("/api/media", { preHandler: requireAuth }, async () => ({ media: await listMedia() }));
+  app.get("/api/media", { preHandler: requireAuth }, async (request) => ({ media: await listMedia(request.channel) }));
 
   app.post<{ Querystring: { name?: string } }>(
     "/api/media",
@@ -23,8 +23,8 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     async (request, reply) => {
       if (!Buffer.isBuffer(request.body)) return reply.code(400).send({ error: "Keine Datei erhalten." });
       try {
-        const media = await saveMedia(String(request.query.name ?? "datei"), request.body);
-        log("info", "media", `Datei hochgeladen: ${media.name} (${Math.round(media.size / 1024)} KB)`);
+        const media = await saveMedia(request.channel, String(request.query.name ?? "datei"), request.body);
+        log("info", "media", `Datei hochgeladen: ${media.name} (${Math.round(media.size / 1024)} KB)`, request.channel);
         return { media };
       } catch (err) {
         if (err instanceof MediaError) return reply.code(400).send({ error: err.message });
@@ -38,7 +38,7 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
     { preHandler: [requireAuth, requireOrigin] },
     async (request, reply) => {
       if (!isMediaFile(request.params.file)) return reply.code(400).send({ error: "Ungültiger Dateiname." });
-      await deleteMedia(request.params.file);
+      await deleteMedia(request.channel, request.params.file);
       return { ok: true };
     }
   );
@@ -46,12 +46,12 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
   app.get<{ Params: { file: string }; Querystring: { token?: string } }>(
     "/overlay-media/:file",
     async (request, reply) => {
-      const allowed = validToken(request.query.token) || (await userFromRequest(request)) !== null;
-      if (!allowed) return reply.code(403).send({ error: "Kein Zugriff." });
+      const channel = channelForToken(request.query.token) ?? (await sessionFromRequest(request))?.channel;
+      if (!channel) return reply.code(403).send({ error: "Kein Zugriff." });
 
       const { file } = request.params;
       if (!isMediaFile(file)) return reply.code(404).send({ error: "Nicht gefunden." });
-      const path = mediaPath(file);
+      const path = mediaPath(channel, file);
       const info = await stat(path).catch(() => null);
       if (!info) return reply.code(404).send({ error: "Nicht gefunden." });
 

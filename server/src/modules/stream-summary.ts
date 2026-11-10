@@ -4,7 +4,7 @@ import type { BotModule, ModuleContext } from "./types.js";
 
 export function createStreamSummaryModule(): BotModule {
   async function finished(ctx: ModuleContext, sessionId: number): Promise<void> {
-    const summary = await getSummary(sessionId);
+    const summary = await getSummary(ctx.channel, sessionId);
     ctx.log("info", `Stream beendet. ${summary?.text ?? ""}`);
 
     if (ctx.settings.autoPost !== true) {
@@ -12,7 +12,7 @@ export function createStreamSummaryModule(): BotModule {
       return;
     }
     try {
-      await postSummary(sessionId, ctx.settings, ctx.channel);
+      await postSummary(ctx.channel, sessionId, ctx.settings);
     } catch {
       ctx.log("warn", "Automatisches Posten fehlgeschlagen. Die Zusammenfassung wartet im Dashboard.");
     }

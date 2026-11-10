@@ -1,31 +1,48 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from "vue";
 import { api } from "../api";
-import type { ModuleCategory, ModuleView, SummaryView, User } from "../types";
+import type { Me, ModuleCategory, ModuleView, SummaryView } from "../types";
 import { useLive } from "../composables/useLive";
+import AccessPage from "./AccessPage.vue";
 import CopyLink from "./CopyLink.vue";
 import LiveLog from "./LiveLog.vue";
 import ModuleSection from "./ModuleSection.vue";
 import OverviewPage from "./OverviewPage.vue";
 import StreamSummaries from "./StreamSummaries.vue";
 
-const props = defineProps<{ user: User }>();
-const emit = defineEmits<{ logout: []; "session-lost": [] }>();
+const props = defineProps<{ me: Me }>();
+const emit = defineEmits<{ logout: []; "session-lost": []; refresh: [] }>();
 
 const live = useLive(() => emit("session-lost"));
 
-type Tab = "overview" | ModuleCategory;
+type Tab = "overview" | ModuleCategory | "access";
 
 const tabs: { id: Tab; label: string }[] = [
   { id: "overview", label: "Übersicht" },
   { id: "obs", label: "OBS" },
   { id: "twitch-discord", label: "Twitch + Discord" },
   { id: "twitch", label: "Twitch" },
+  ...(props.me.canManageAccess || props.me.owner ? [{ id: "access" as Tab, label: "Zugriff" }] : []),
 ];
 
 function tabFromHash(): Tab {
   const id = location.hash.replace(/^#\/?/, "");
   return tabs.some((t) => t.id === id) ? (id as Tab) : "overview";
+}
+
+const switching = ref(false);
+
+async function switchChannel(event: Event) {
+  const channel = (event.target as HTMLSelectElement).value;
+  if (channel === props.me.channel) return;
+  switching.value = true;
+  try {
+    await api.switchChannel(channel);
+    location.reload();
+  } catch (err) {
+    switching.value = false;
+    alert(err instanceof Error ? err.message : String(err));
+  }
 }
 
 const tab = ref<Tab>(tabFromHash());
@@ -97,13 +114,19 @@ function onLogout() {
             {{ live.twitch.value.connected ? "Twitch verbunden" : "Twitch getrennt" }}
           </span>
           <span v-if="liveNow" class="pill on-air">● Live</span>
-          <span class="channel">#{{ live.twitch.value.channel }}</span>
+          <span v-if="props.me.channels.length < 2" class="channel">#{{ live.twitch.value.channel }}</span>
         </template>
+        <label v-if="props.me.channels.length > 1" class="switch">
+          <span class="sr-only">Kanal</span>
+          <select :value="props.me.channel" :disabled="switching" @change="switchChannel">
+            <option v-for="c in props.me.channels" :key="c.login" :value="c.login">#{{ c.login }}</option>
+          </select>
+        </label>
       </div>
 
       <div class="account">
-        <img v-if="props.user.avatarUrl" :src="props.user.avatarUrl" alt="" width="28" height="28" />
-        <span class="user">{{ props.user.displayName }}</span>
+        <img v-if="props.me.user.avatarUrl" :src="props.me.user.avatarUrl" alt="" width="28" height="28" />
+        <span class="user">{{ props.me.user.displayName }}</span>
         <button type="button" class="btn btn-ghost" @click="onLogout">Abmelden</button>
       </div>
     </header>
@@ -119,7 +142,9 @@ function onLogout() {
         @click="select(t.id)"
       >
         {{ t.label }}
-        <span v-if="t.id !== 'overview' && live.loaded.value" class="tab-count">{{ modulesIn(t.id).length }}</span>
+        <span v-if="t.id !== 'overview' && t.id !== 'access' && live.loaded.value" class="tab-count">
+          {{ modulesIn(t.id).length }}
+        </span>
       </button>
     </nav>
 
@@ -173,6 +198,10 @@ function onLogout() {
             empty="Noch keine Funktionen eingebaut."
             @updated="onUpdated"
           />
+        </template>
+
+        <template v-else-if="tab === 'access'">
+          <AccessPage :me="props.me" @channels-changed="emit('refresh')" />
         </template>
 
         <template v-else>
@@ -288,6 +317,16 @@ function onLogout() {
 .channel {
   color: var(--text-faint);
   font-size: var(--step--1);
+}
+
+.switch select {
+  font: inherit;
+  font-size: var(--step--1);
+  color: var(--text);
+  background: var(--desk-raised);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.2rem 0.65rem;
 }
 
 .account {

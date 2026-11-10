@@ -45,7 +45,7 @@ export function createWatchStreakAlertModule(): BotModule {
       sound: ctx.settings.playSound === true,
       volume: Number(ctx.settings.volume) / 100,
     };
-    sendToOverlay("watch-streak", alert);
+    sendToOverlay(ctx.channel, "watch-streak", alert);
   }
 
   return {

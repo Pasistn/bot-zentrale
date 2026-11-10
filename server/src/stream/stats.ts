@@ -30,7 +30,7 @@ export interface StatsOverview {
 
 async function toStats(session: StreamSession): Promise<StreamStats> {
   const until = session.endedAt ?? Date.now();
-  const events = await streamEventStore.between(session.startedAt, until);
+  const events = await streamEventStore.between(session.channel, session.startedAt, until);
   const sum = (type: string) => events.filter((e) => e.type === type).reduce((total, e) => total + e.amount, 0);
   const raids = events.filter((e) => e.type === "raid");
 
@@ -60,10 +60,10 @@ async function toStats(session: StreamSession): Promise<StreamStats> {
   };
 }
 
-export async function getStatsOverview(): Promise<StatsOverview> {
-  const sessions = await streamSessionStore.recent(LIST_LIMIT);
+export async function getStatsOverview(channel: string): Promise<StatsOverview> {
+  const sessions = await streamSessionStore.recent(channel, LIST_LIMIT);
   return {
     streams: await Promise.all(sessions.map(toStats)),
-    followersAvailable: await hasStreamerToken(),
+    followersAvailable: await hasStreamerToken(channel),
   };
 }
