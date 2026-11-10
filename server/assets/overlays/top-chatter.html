@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>Top Chatter</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: transparent;
+    overflow: hidden;
+  }
+
+  body {
+    --accent: #9146ff;
+    font-family: "Segoe UI", "Inter", system-ui, sans-serif;
+    color: #fff;
+    padding: 12px;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+  }
+
+  body.v-middle { justify-content: center; }
+  body.v-bottom { justify-content: flex-end; }
+  body.h-center .box { margin: 0 auto; }
+  body.h-right .box { margin-left: auto; }
+  body.h-center .title { align-self: center; }
+  body.h-right .title { align-self: flex-end; }
+
+  .box {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+    max-width: 420px;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.45s ease, transform 0.45s ease;
+  }
+
+  .box.visible {
+    opacity: 1;
+    transform: none;
+  }
+
+  .title {
+    font-size: 15px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: #fff;
+    padding: 4px 12px;
+    align-self: flex-start;
+    border-radius: 6px;
+    background: var(--accent);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+
+  .title:empty {
+    display: none;
+  }
+
+  .list {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 34px 40px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 14px 7px 8px;
+    border-radius: 10px;
+    background: rgba(14, 14, 24, 0.82);
+    border-left: 4px solid var(--rank, var(--accent));
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    transition: transform 0.5s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.35s ease;
+  }
+
+  .row.enter {
+    opacity: 0;
+    transform: translateX(-24px);
+  }
+
+  .row[data-rank="1"] { --rank: #f5c542; }
+  .row[data-rank="2"] { --rank: #cfd6e0; }
+  .row[data-rank="3"] { --rank: #d68a4e; }
+
+  .rank {
+    font-size: 20px;
+    font-weight: 900;
+    text-align: center;
+    color: var(--rank, var(--accent));
+  }
+
+  .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: var(--accent);
+    display: grid;
+    place-items: center;
+    font-weight: 800;
+    font-size: 18px;
+    box-shadow: 0 0 0 2px var(--rank, var(--accent));
+  }
+
+  .name {
+    font-size: 18px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+  }
+
+  .count {
+    font-size: 15px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: rgba(255, 255, 255, 0.8);
+    white-space: nowrap;
+  }
+
+  .count small {
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.55);
+    margin-left: 3px;
+  }
+
+  .count.bump {
+    animation: bump 0.4s ease;
+  }
+
+  @keyframes bump {
+    40% { transform: scale(1.25); color: #fff; }
+  }
+
+  .no-count .count {
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="box" id="box">
+  <div class="title" id="title"></div>
+  <div class="list" id="list"></div>
+</div>
+
+<script>
+  (function applyAlign() {
+    const align = new URLSearchParams(location.search).get("align") || "top-left";
+    const [v, h] = align === "center" ? ["middle", "center"] : align.split("-");
+    document.body.classList.add("v-" + v, "h-" + h);
+  })();
+
+  const box = document.getElementById("box");
+  const titleEl = document.getElementById("title");
+  const listEl = document.getElementById("list");
+  const token = new URLSearchParams(location.search).get("token") || "";
+  const rows = new Map();
+
+  function createRow(chatter) {
+    const row = document.createElement("div");
+    row.className = "row enter";
+    row.innerHTML = '<div class="rank"></div><div class="avatar-slot"></div><div class="name"></div><div class="count"></div>';
+    row.dataset.login = chatter.login;
+    return row;
+  }
+
+  function setAvatar(row, chatter) {
+    const slot = row.querySelector(".avatar-slot");
+    const key = chatter.avatarUrl || "letter:" + chatter.displayName;
+    if (slot.dataset.key === key) return;
+    slot.dataset.key = key;
+    slot.textContent = "";
+    if (chatter.avatarUrl) {
+      const img = document.createElement("img");
+      img.className = "avatar";
+      img.alt = "";
+      img.src = chatter.avatarUrl;
+      slot.appendChild(img);
+    } else {
+      const letter = document.createElement("div");
+      letter.className = "avatar";
+      letter.textContent = (chatter.displayName || "?").charAt(0).toUpperCase();
+      slot.appendChild(letter);
+    }
+  }
+
+  function render(state) {
+    document.body.style.setProperty("--accent", state.accentColor || "#9146ff");
+    titleEl.textContent = state.title || "";
+    box.classList.toggle("no-count", state.showCount === false);
+
+    const before = new Map();
+    for (const [login, row] of rows) before.set(login, row.getBoundingClientRect().top);
+
+    const seen = new Set();
+    state.chatters.forEach((chatter, index) => {
+      seen.add(chatter.login);
+      let row = rows.get(chatter.login);
+      if (!row) {
+        row = createRow(chatter);
+        rows.set(chatter.login, row);
+      }
+      row.dataset.rank = String(index + 1);
+      row.querySelector(".rank").textContent = String(index + 1);
+      row.querySelector(".name").textContent = chatter.displayName;
+
+      const countEl = row.querySelector(".count");
+      const label = chatter.count === 1 ? "Nachricht" : "Nachrichten";
+      const previous = countEl.dataset.value;
+      countEl.dataset.value = String(chatter.count);
+      countEl.innerHTML = "";
+      countEl.append(String(chatter.count));
+      const small = document.createElement("small");
+      small.textContent = label;
+      countEl.append(small);
+      if (previous !== undefined && previous !== String(chatter.count)) {
+        countEl.classList.remove("bump");
+        void countEl.offsetWidth;
+        countEl.classList.add("bump");
+      }
+
+      setAvatar(row, chatter);
+      listEl.appendChild(row);
+    });
+
+    for (const [login, row] of rows) {
+      if (!seen.has(login)) {
+        row.remove();
+        rows.delete(login);
+      }
+    }
+
+    for (const [login, row] of rows) {
+      const oldTop = before.get(login);
+      if (oldTop === undefined) {
+        requestAnimationFrame(() => requestAnimationFrame(() => row.classList.remove("enter")));
+        continue;
+      }
+      const delta = oldTop - row.getBoundingClientRect().top;
+      if (delta === 0) continue;
+      row.style.transition = "none";
+      row.style.transform = "translateY(" + delta + "px)";
+      void row.offsetWidth;
+      row.style.transition = "";
+      row.style.transform = "";
+    }
+
+    box.classList.toggle("visible", state.chatters.length > 0);
+  }
+
+  let retryMs = 2000;
+
+  function connect() {
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(
+      protocol + "//" + location.host + "/overlay/top-chatter/ws?token=" + encodeURIComponent(token)
+    );
+    socket.onopen = () => {
+      retryMs = 2000;
+    };
+    socket.onmessage = (event) => {
+      try {
+        render(JSON.parse(event.data));
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    socket.onclose = (event) => {
+      if (event.code === 4001) {
+        render({ chatters: [] });
+        return;
+      }
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 2, 15000);
+    };
+  }
+
+  connect();
+</script>
+</body>
+</html>

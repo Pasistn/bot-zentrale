@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:" />
+    <title>Bot-Zentrale</title>
+    <style>
+      :root {
+        --ink: #e6eeff;
+        --desk: rgba(255, 255, 255, 0.72);
+        --field: rgba(255, 255, 255, 0.9);
+        --line: rgba(110, 140, 225, 0.32);
+        --line-strong: rgba(110, 140, 225, 0.6);
+        --text: #16204a;
+        --text-muted: #3f4a7a;
+        --text-faint: #5f6996;
+        --tally: #2f6bff;
+        --tally-hover: #4d82ff;
+        --tally-glow: rgba(47, 107, 255, 0.28);
+        --fault: #d4365a;
+        --fault-bg: rgba(212, 54, 90, 0.1);
+        --warn: #a85f00;
+        --ok: #0b8a68;
+        --frost: linear-gradient(120deg, #2f6bff 0%, #7a52f0 55%, #3fb8ff 100%);
+        --shadow: 0 10px 30px rgba(40, 70, 160, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.7);
+        --font-log: "Cascadia Mono", Consolas, ui-monospace, monospace;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body { margin: 0; height: 100%; }
+
+      body {
+        background: radial-gradient(circle at 15% 0%, #d6e2ff 0%, transparent 55%),
+          radial-gradient(circle at 100% 100%, #e7dcff 0%, transparent 50%), var(--ink);
+        color: var(--text);
+        font-family: "Segoe UI", system-ui, sans-serif;
+        font-size: 15px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        padding: 20px;
+      }
+
+      header { display: flex; align-items: center; justify-content: space-between; gap: 12px; user-select: none; }
+
+      h1 {
+        margin: 0;
+        font-size: 26px;
+        font-weight: 700;
+        background: var(--frost);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .version { font-size: 12px; color: var(--text-faint); margin-left: 8px; font-weight: 400; }
+
+      .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px;
+        border-radius: 999px;
+        background: var(--desk);
+        border: 1px solid var(--line);
+        font-weight: 600;
+        font-size: 14px;
+      }
+
+      .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--text-faint); }
+      .status[data-tone="ok"] .dot { background: var(--ok); box-shadow: 0 0 0 4px rgba(11, 138, 104, 0.18); }
+      .status[data-tone="busy"] .dot { background: var(--warn); animation: pulse 1s ease-in-out infinite; }
+      .status[data-tone="fault"] .dot { background: var(--fault); }
+
+      @keyframes pulse { 50% { opacity: 0.35; } }
+
+      .panel {
+        background: var(--desk);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: var(--shadow);
+        padding: 18px;
+      }
+
+      [hidden] { display: none !important; }
+
+      button {
+        font: inherit;
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        cursor: pointer;
+        transition: background 0.15s, transform 0.05s, opacity 0.15s;
+      }
+      button:active:not(:disabled) { transform: translateY(1px); }
+      button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+      .primary { background: var(--tally); color: #fff; border: none; padding: 9px 18px; font-weight: 600; }
+      .primary:hover:not(:disabled) { background: var(--tally-hover); }
+      .ghost { background: rgba(255, 255, 255, 0.8); color: var(--text-muted); padding: 7px 14px; font-size: 13px; }
+      .ghost:hover:not(:disabled) { background: #fff; }
+
+      .update {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 12px 16px;
+        border-radius: 14px;
+        background: var(--frost);
+        color: #fff;
+        font-weight: 600;
+        box-shadow: 0 8px 24px var(--tally-glow);
+      }
+      .update span { flex: 1; }
+      .update button { background: #fff; color: var(--tally); border: none; padding: 7px 14px; font-weight: 700; }
+
+      #view-main { display: flex; flex-direction: column; gap: 16px; flex: 1; min-height: 0; }
+
+      .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+      .big { padding: 18px; font-size: 18px; font-weight: 700; color: #fff; border: none; user-select: none; }
+      #toggle { background: var(--tally); }
+      #toggle:hover:not(:disabled) { background: var(--tally-hover); }
+      #toggle.stop { background: var(--fault); }
+      #toggle.stop:hover:not(:disabled) { background: #e04b6d; }
+      #dashboard { background: var(--frost); }
+
+      .secondary { display: flex; gap: 10px; margin-top: 12px; align-items: center; }
+      .url { margin-left: auto; color: var(--text-faint); font-size: 13px; }
+
+      .log-panel { flex: 1; min-height: 120px; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+      .log-head { padding: 10px 16px; font-size: 13px; font-weight: 600; color: var(--text-muted); border-bottom: 1px solid var(--line); }
+      #log {
+        flex: 1;
+        overflow-y: auto;
+        margin: 0;
+        padding: 10px 16px;
+        font-family: var(--font-log);
+        font-size: 12.5px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+      #log .err { color: var(--fault); }
+      #log .app { color: var(--tally); font-weight: 600; }
+      #log .empty { color: var(--text-faint); }
+
+      #view-settings { overflow-y: auto; flex: 1; min-height: 0; }
+      #view-settings h2 { margin: 0 0 4px; font-size: 20px; }
+      .lead { margin: 0 0 16px; color: var(--text-muted); }
+
+      .guide {
+        margin: 0 0 18px;
+        padding: 14px 16px 14px 34px;
+        border-radius: 12px;
+        background: rgba(47, 107, 255, 0.07);
+        border: 1px solid var(--line);
+        color: var(--text-muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .guide li + li { margin-top: 6px; }
+      .guide b { color: var(--text); }
+      code {
+        font-family: var(--font-log);
+        font-size: 12.5px;
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        padding: 1px 6px;
+        user-select: all;
+      }
+      .inline-btn { padding: 2px 10px; font-size: 12px; margin-left: 6px; }
+
+      form { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 16px; }
+      .field { display: flex; flex-direction: column; gap: 5px; }
+      .field.wide { grid-column: 1 / -1; }
+      label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+      .hint { font-size: 12px; color: var(--text-faint); }
+      input[type="text"], input[type="password"], input[type="number"] {
+        font: inherit;
+        padding: 9px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line-strong);
+        background: var(--field);
+        color: var(--text);
+      }
+      input:focus { outline: 2px solid var(--tally); outline-offset: 1px; }
+      .check { display: flex; flex-direction: row; align-items: center; gap: 8px; }
+      .db { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px 14px; margin: 0; }
+      .db legend { font-size: 13px; font-weight: 700; color: var(--text); padding: 0 6px; }
+      .db .hint { margin-bottom: 4px; }
+      .db label { margin-top: 6px; }
+      .optional { font-weight: 400; color: var(--text-faint); margin-left: 4px; }
+      .file-row { display: flex; gap: 8px; }
+      .file-row input { flex: 1; min-width: 0; }
+      .check label { font-weight: 400; color: var(--text); }
+
+      .form-error {
+        grid-column: 1 / -1;
+        margin: 0;
+        padding: 9px 12px;
+        border-radius: 10px;
+        background: var(--fault-bg);
+        color: var(--fault);
+        font-size: 14px;
+      }
+      .form-actions { grid-column: 1 / -1; display: flex; gap: 10px; justify-content: flex-end; }
+
+      footer { font-size: 12px; color: var(--text-faint); text-align: center; user-select: none; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Bot-Zentrale<span class="version" id="version"></span></h1>
+      <span class="status" id="status" data-tone="idle"><span class="dot"></span><span id="status-text">Gestoppt</span></span>
+    </header>
+
+    <div class="update" id="update" hidden>
+      <span id="update-text"></span>
+      <button id="update-install" hidden>Neu starten &amp; aktualisieren</button>
+    </div>
+
+    <div id="view-main">
+      <section class="panel">
+        <div class="actions">
+          <button class="big" id="toggle">Server starten</button>
+          <button class="big" id="dashboard" disabled>Dashboard öffnen</button>
+        </div>
+        <div class="secondary">
+          <button class="ghost" id="browser" disabled>Im Browser öffnen</button>
+          <button class="ghost" id="open-settings">Einstellungen</button>
+          <span class="url" id="url"></span>
+        </div>
+      </section>
+
+      <section class="panel log-panel">
+        <div class="log-head">Server-Log</div>
+        <pre id="log"><span class="empty">Noch keine Ausgabe. Starte den Server.</span></pre>
+      </section>
+
+      <footer>Beim Schließen dieses Fensters wird der Server sauber gestoppt.</footer>
+    </div>
+
+    <section class="panel" id="view-settings" hidden>
+      <h2 id="settings-title">Einstellungen</h2>
+      <p class="lead" id="settings-lead">Zugangsdaten und Kanal für deinen Bot.</p>
+
+      <ol class="guide" id="guide">
+        <li>
+          Öffne die Twitch-Entwicklerkonsole
+          <button type="button" class="ghost inline-btn" id="open-console">dev.twitch.tv öffnen</button>
+          und klicke auf <b>Anwendung registrieren</b>.
+        </li>
+        <li>
+          Name: frei wählbar, z. B. <code>bot-zentrale-deinname</code>.<br />
+          OAuth-Redirect-URL: <code id="redirect-url">http://localhost:3000/auth/callback</code>
+          <button type="button" class="ghost inline-btn" id="copy-redirect">Kopieren</button><br />
+          Kategorie: <b>Website Integration</b>, Client-Typ: <b>Vertraulich</b>.
+        </li>
+        <li>Auf <b>Erstellen</b>, dann <b>Verwalten</b> klicken. Die <b>Client-ID</b> kopieren und mit <b>Neues Geheimnis</b> das <b>Client-Secret</b> erzeugen.</li>
+        <li>Beides unten eintragen. Das Secret wird verschlüsselt auf diesem PC gespeichert.</li>
+      </ol>
+
+      <form id="settings-form" autocomplete="off">
+        <div class="field">
+          <label for="f-channel">Dein Twitch-Kanal</label>
+          <input type="text" id="f-channel" placeholder="deinkanalname" spellcheck="false" />
+          <span class="hint">Wie in der Kanal-URL, nicht der Anzeigename.</span>
+        </div>
+        <div class="field">
+          <label for="f-admins">Wer darf ins Dashboard?</label>
+          <input type="text" id="f-admins" placeholder="leer = nur dein Kanal" spellcheck="false" />
+          <span class="hint">Twitch-Namen, mit Komma getrennt.</span>
+        </div>
+        <div class="field">
+          <label for="f-client-id">Client-ID</label>
+          <input type="text" id="f-client-id" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label for="f-client-secret">Client-Secret</label>
+          <input type="password" id="f-client-secret" />
+          <span class="hint" id="secret-hint"></span>
+        </div>
+        <div class="field">
+          <label for="f-port">Port</label>
+          <input type="number" id="f-port" min="1024" max="65535" />
+          <span class="hint">Standard 3000. Bei Änderung auch die Redirect-URL bei Twitch anpassen.</span>
+        </div>
+        <div class="field check">
+          <input type="checkbox" id="f-autostart" />
+          <label for="f-autostart">Server beim Öffnen der App automatisch starten</label>
+        </div>
+
+        <fieldset class="field wide db">
+          <legend>Datenbank <span class="optional">optional</span></legend>
+          <p class="hint">
+            Leer lassen: Alles wird lokal auf diesem PC gespeichert. Mit einer Postgres-Adresse (z. B. Supabase oder dein
+            eigener Server) liegen die Daten online. Beim ersten Start werden deine lokalen Daten automatisch übernommen.
+          </p>
+          <label for="f-database-url">Postgres-Adresse</label>
+          <input type="password" id="f-database-url" spellcheck="false" placeholder="postgresql://…" />
+          <span class="hint" id="database-hint">Supabase: Projekt → Connect → <b>Session pooler</b> → Adresse kopieren und dein Datenbank-Passwort einsetzen.</span>
+          <div class="check" id="database-local-row" hidden>
+            <input type="checkbox" id="f-database-local" />
+            <label for="f-database-local">Wieder lokal speichern (Online-Daten bleiben unangetastet)</label>
+          </div>
+
+          <label for="f-database-ca">CA-Zertifikat <span class="optional">empfohlen</span></label>
+          <div class="file-row">
+            <input type="text" id="f-database-ca" readonly placeholder="Keins gewählt" />
+            <button type="button" class="ghost" id="pick-ca">Datei wählen</button>
+            <button type="button" class="ghost" id="clear-ca">Entfernen</button>
+          </div>
+          <span class="hint">Damit prüft der Bot, dass er wirklich mit deiner Datenbank spricht. Supabase: Database → Settings → SSL Configuration → Zertifikat herunterladen.</span>
+        </fieldset>
+
+        <p class="form-error" id="form-error" hidden></p>
+
+        <div class="form-actions">
+          <button type="button" class="ghost" id="settings-cancel">Abbrechen</button>
+          <button type="submit" class="primary" id="settings-save">Speichern</button>
+        </div>
+      </form>
+    </section>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

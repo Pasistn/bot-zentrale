@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8" />
+<title>Alle Overlays</title>
+<style>
+  html, body {
+    margin: 0;
+    width: 1920px;
+    height: 1080px;
+    background: transparent;
+    overflow: hidden;
+  }
+
+  iframe {
+    position: absolute;
+    border: 0;
+    background: transparent;
+    transform-origin: 0 0;
+    transition: left 0.3s ease, top 0.3s ease, transform 0.3s ease;
+  }
+</style>
+</head>
+<body>
+<script>
+  const WIDTH = 1920;
+  const HEIGHT = 1080;
+  const MARGIN = 32;
+
+  const token = new URLSearchParams(location.search).get("token") || "";
+  const frames = new Map();
+
+  function place(frame, entry) {
+    const w = entry.width * entry.scale;
+    const h = entry.height * entry.scale;
+    const [vertical, horizontal] = entry.position === "center" ? ["middle", "center"] : entry.position.split("-");
+
+    const left = horizontal === "left" ? MARGIN : horizontal === "right" ? WIDTH - MARGIN - w : (WIDTH - w) / 2;
+    const top = vertical === "top" ? MARGIN : vertical === "bottom" ? HEIGHT - MARGIN - h : (HEIGHT - h) / 2;
+
+    frame.style.width = entry.width + "px";
+    frame.style.height = entry.height + "px";
+    frame.style.left = Math.round(left) + "px";
+    frame.style.top = Math.round(top) + "px";
+    frame.style.transform = "scale(" + entry.scale + ")";
+  }
+
+  function render(layout) {
+    const seen = new Set();
+    for (const entry of layout) {
+      seen.add(entry.id);
+      let frame = frames.get(entry.id);
+      const src =
+        "/overlay/" + entry.id + "?token=" + encodeURIComponent(token) + "&align=" + encodeURIComponent(entry.position);
+      if (!frame) {
+        frame = document.createElement("iframe");
+        frame.setAttribute("allowtransparency", "true");
+        frame.setAttribute("allow", "autoplay");
+        frame.setAttribute("scrolling", "no");
+        frame.title = entry.id;
+        frame.src = src;
+        frames.set(entry.id, frame);
+        document.body.appendChild(frame);
+      } else if (frame.dataset.position !== entry.position) {
+        frame.src = src;
+      }
+      frame.dataset.position = entry.position;
+      place(frame, entry);
+    }
+    for (const [id, frame] of frames) {
+      if (!seen.has(id)) {
+        frame.remove();
+        frames.delete(id);
+      }
+    }
+  }
+
+  let retryMs = 2000;
+
+  function connect() {
+    const protocol = location.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(protocol + "//" + location.host + "/overlay/layout/ws?token=" + encodeURIComponent(token));
+    socket.onopen = () => {
+      retryMs = 2000;
+    };
+    socket.onmessage = (event) => {
+      try {
+        render(JSON.parse(event.data));
+      } catch (err) {
+        console.error(err);
+      }
+    };
+    socket.onclose = (event) => {
+      if (event.code === 4001) {
+        render([]);
+        return;
+      }
+      setTimeout(connect, retryMs);
+      retryMs = Math.min(retryMs * 2, 15000);
+    };
+  }
+
+  connect();
+</script>
+</body>
+</html>
