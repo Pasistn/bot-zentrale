@@ -3,6 +3,4 @@ dist/
 data/
 .env
 *.log
-desktop/bundle/
-desktop/release/
 .vscode/

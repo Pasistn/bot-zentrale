@@ -14,6 +14,8 @@ Twitch-Bot mit Web-Dashboard für mehrere Streamer. Ein Server, eine Twitch-Anwe
 
 Unabhängig von den Modulen erfasst der Bot jeden Stream (Ø Zuschauer, Peak, neue Follower, Subs, Bits, Raids) und zeigt die Werte in der Übersicht.
 
+Das Dashboard läuft im Browser. In Chrome oder Edge lässt es sich über „Als App installieren“ als eigenes Fenster mit Desktop-Symbol einrichten.
+
 Alle OBS-Overlays laufen über einen einzigen Link. Position und Größe stellt man im Dashboard ein, Änderungen sind sofort im OBS-Bild sichtbar.
 
 ## Technik
@@ -23,9 +25,9 @@ Alle OBS-Overlays laufen über einen einzigen Link. Position und Größe stellt 
 | Server | Node.js 22, TypeScript, Fastify, tmi.js, WebSockets |
 | Datenbank | SQLite (`node:sqlite`), optional Postgres |
 | Dashboard | Vue 3, Vite |
-| Desktop | Electron, electron-builder, electron-updater |
+| Betrieb | Ubuntu (ARM64), Caddy, systemd |
 
-Das Projekt ist ein npm-Workspace mit `server/` und `web/`. Die Desktop-App in `desktop/` hat eigene Abhängigkeiten.
+Das Projekt ist ein npm-Workspace mit `server/` und `web/`.
 
 ## Einrichtung
 
@@ -78,21 +80,6 @@ Für den Betrieb ohne Vite `PUBLIC_URL` auf `http://localhost:3000` setzen und `
 | `npm run secret` | Zufälliges Session-Secret |
 | `npm run deploy` | Committeten Stand auf den Server bringen |
 
-## Desktop-App
-
-Die App startet den Server in Electrons eigenem Node, Nutzer brauchen also weder Node.js noch eine `.env`. Kanal und Twitch-Zugangsdaten werden beim ersten Start abgefragt, das Secret wird mit `safeStorage` verschlüsselt. Einstellungen, Datenbank und hochgeladene Medien liegen in `%APPDATA%\Bot-Zentrale`.
-
-```bash
-cd desktop
-npm install
-npm start        # Bundle bauen und App starten
-npm run dist     # Installer nach desktop/release
-```
-
-Für Auto-Updates in `desktop/package.json` unter `build.publish` die Update-URL eintragen. Bei jeder neuen Version `version` erhöhen und aus `desktop/release/` den Installer, die `.blockmap` und zuletzt `latest.yml` hochladen. Die App prüft beim Start und alle vier Stunden.
-
-Der Installer ist nicht signiert, Windows SmartScreen fragt deshalb bei der ersten Installation nach.
-
 ## Mehrere Streamer
 
 Im Reiter **Zugriff** schalten Betreiber neue Streamer frei. Der Bot tritt dann dem Chat des Kanals bei, und der Streamer kann sich anmelden. Jeder Streamer kann dort außerdem Mods eintragen, die sein Dashboard mitbenutzen dürfen. Wer Zugriff auf mehrere Kanäle hat, wechselt oben rechts.
@@ -117,7 +104,7 @@ server/src/
   routes/           REST-API und WebSocket
 server/assets/      Overlay-Seiten, Platzhalterbild
 web/src/            Vue-Dashboard
-desktop/            Electron-App
+deploy/             Dienst, Caddy, Update-Skript
 ```
 
 Login: OAuth Authorization Code Flow mit State-Cookie. Sitzungen liegen in der Datenbank, das Cookie ist signiert, `HttpOnly` und `SameSite=Lax`. Ändernde Anfragen und WebSockets werden nur von `PUBLIC_URL` angenommen. Secret-Einstellungen wie Webhook-URLs gehen nie zurück an den Browser.

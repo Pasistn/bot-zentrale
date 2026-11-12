@@ -79,13 +79,6 @@ async function main(): Promise<void> {
 
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
-
-  if (process.send) {
-    process.on("message", (message) => {
-      if (message === "shutdown") void shutdown();
-    });
-    process.on("disconnect", () => void shutdown());
-  }
 }
 
 main().catch((err) => {
