@@ -69,7 +69,12 @@ export async function hasStreamerToken(channel: string): Promise<boolean> {
   return (await twitchTokenStore.get(channel)) !== null;
 }
 
-export async function getFollowerCount(channel: string): Promise<number | null> {
+interface FollowersResponse {
+  total: number;
+  data: { user_id: string; followed_at: string }[];
+}
+
+async function followers(channel: string, params: Record<string, string>): Promise<FollowersResponse | null> {
   let token = await twitchTokenStore.get(channel);
   if (!token) return null;
 
@@ -83,7 +88,7 @@ export async function getFollowerCount(channel: string): Promise<number | null> 
     }
     const url = new URL("https://api.twitch.tv/helix/channels/followers");
     url.searchParams.set("broadcaster_id", broadcasterId);
-    url.searchParams.set("first", "1");
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${token.accessToken}`, "Client-Id": config.twitchClientId },
     });
@@ -92,7 +97,18 @@ export async function getFollowerCount(channel: string): Promise<number | null> 
       continue;
     }
     if (!res.ok) throw new Error(`Twitch-API antwortet mit ${res.status} auf /channels/followers`);
-    return ((await res.json()) as { total: number }).total;
+    return (await res.json()) as FollowersResponse;
   }
   return null;
+}
+
+export async function getFollowerCount(channel: string): Promise<number | null> {
+  return (await followers(channel, { first: "1" }))?.total ?? null;
+}
+
+export async function getFollowedAt(channel: string, userId: string): Promise<number | null | undefined> {
+  const result = await followers(channel, { user_id: userId });
+  if (!result) return undefined;
+  const entry = result.data[0];
+  return entry ? Date.parse(entry.followed_at) : null;
 }

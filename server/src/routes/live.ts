@@ -52,6 +52,16 @@ export async function liveRoutes(
     onSummaries(channel);
   };
 
+  const onGiveaway = async (channel: string) => {
+    const runtime = registry.get(channel);
+    if (!runtime || !watched(channel)) return;
+    try {
+      broadcast(channel, { type: "giveaway", giveaway: await runtime.giveaway.view() });
+    } catch (err) {
+      app.log.error(err);
+    }
+  };
+
   const onStatus = (connected: boolean) => {
     for (const channel of new Set(clients.values())) broadcast(channel, { type: "twitch", twitch: { connected, channel } });
   };
@@ -64,6 +74,7 @@ export async function liveRoutes(
 
   logEvents.on("entry", onLog);
   registry.on("modules", onModules);
+  registry.on("giveaway", onGiveaway);
   registry.on("removed", onRemoved);
   chat.on("status", onStatus);
   summaryEvents.on("changed", onSummaries);
@@ -79,6 +90,7 @@ export async function liveRoutes(
     for (const timer of summaryTimers.values()) clearTimeout(timer);
     logEvents.off("entry", onLog);
     registry.off("modules", onModules);
+    registry.off("giveaway", onGiveaway);
     registry.off("removed", onRemoved);
     chat.off("status", onStatus);
     summaryEvents.off("changed", onSummaries);
@@ -110,7 +122,11 @@ export async function liveRoutes(
       socket.on("error", () => clients.delete(socket));
 
       const runtime = registry.get(channel);
-      const [summaries, stats] = await Promise.all([listSummaries(channel), getStatsOverview(channel)]);
+      const [summaries, stats, giveaway] = await Promise.all([
+        listSummaries(channel),
+        getStatsOverview(channel),
+        runtime ? runtime.giveaway.view() : null,
+      ]);
       if (socket.readyState !== socket.OPEN) return;
       socket.send(
         JSON.stringify({
@@ -119,6 +135,7 @@ export async function liveRoutes(
           logs: recentLogs(channel),
           summaries,
           stats,
+          giveaway,
           twitch: { connected: chat.connected, channel },
         })
       );

@@ -68,10 +68,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="access" aria-label="Zugriff">
-    <div class="head">
-      <h1>Zugriff</h1>
-      <p class="intro">Wer dieses Dashboard öffnen darf.</p>
+  <section class="page" aria-labelledby="access-title">
+    <div class="page-head">
+      <div>
+        <h1 id="access-title">Zugriff</h1>
+        <p class="intro">Wer dieses Dashboard öffnen darf.</p>
+      </div>
     </div>
 
     <p v-if="notice" class="notice" :class="notice.kind" role="status">{{ notice.text }}</p>
@@ -106,7 +108,7 @@ onMounted(() => {
         <li v-for="c in channels" :key="c.login">
           <span>
             <b>{{ c.displayName }}</b>
-            <small>#{{ c.login }}<template v-if="c.access.length"> · Mods: {{ c.access.join(", ") }}</template></small>
+            <small>#{{ c.login }}<template v-if="c.access.length">, Mods: {{ c.access.join(", ") }}</template></small>
           </span>
           <button type="button" class="btn btn-ghost" :disabled="busy" @click="removeChannel(c)">Entfernen</button>
         </li>
@@ -121,41 +123,13 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.access {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-h1 {
-  font-size: var(--step-2);
-  letter-spacing: -0.015em;
-}
-
-.intro {
-  margin: 0.3rem 0 0;
-  color: var(--text-muted);
-  font-size: var(--step--1);
-}
-
 .panel {
   display: grid;
-  gap: 0.75rem;
-  padding: 1.1rem 1.25rem;
-  background: var(--desk);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
-}
-
-h2 {
-  font-size: var(--step-1);
+  gap: 0.9rem;
+  padding: 1.3rem 1.5rem;
 }
 
 .panel p {
-  margin: 0;
   color: var(--text-muted);
   font-size: var(--step--1);
   max-width: 65ch;
@@ -165,8 +139,8 @@ h2 {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 0.4rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
 }
 
 .list li {
@@ -174,10 +148,11 @@ h2 {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.45rem 0.4rem 0.45rem 0.8rem;
-  background: var(--desk-raised);
-  border: 1px solid var(--line);
-  border-radius: 8px;
+  padding: 0.55rem 0.5rem 0.55rem 0.9rem;
+}
+
+.list li + li {
+  border-top: 1px solid var(--line);
 }
 
 .list li span {
@@ -191,7 +166,7 @@ h2 {
 }
 
 .panel .empty {
-  font-style: italic;
+  padding: 0.9rem 1rem;
 }
 
 .add {
@@ -203,27 +178,6 @@ h2 {
 .add input {
   flex: 1;
   min-width: 12rem;
-  max-width: 22rem;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
-}
-
-.notice {
-  margin: 0;
-  padding: 0.6rem 0.9rem;
-  border-radius: 8px;
-  font-size: var(--step--1);
-}
-
-.notice.ok {
-  color: var(--ok);
-  background: rgba(11, 138, 104, 0.1);
-}
-
-.notice.error {
-  color: var(--fault);
-  background: var(--fault-bg);
+  max-width: 20rem;
 }
 </style>

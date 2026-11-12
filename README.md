@@ -12,6 +12,8 @@ Twitch-Bot mit Web-Dashboard für mehrere Streamer. Ein Server, eine Twitch-Anwe
 - **Top-Chatter (OBS)**: Live-Rangliste der aktivsten Chatter als Browserquelle.
 - **Watch-Streak-Alert (OBS)**: Alert mit Profilbild, Text und Ton. Eigene Bilder, Videos und Sounds lassen sich hochladen.
 
+Dazu kommt ein **Giveaway-Tool**: Zuschauer machen mit, indem sie ein Stichwort in den Chat schreiben. Auf Wunsch nur Follower, optional mit Mindestdauer in Tagen und Stunden. Die Follower-Bedingung wird beim Beitreten über die Twitch-API geprüft und beim Ziehen noch einmal. Gezogen wird mit `crypto.randomInt`, das Dashboard zeigt danach die Chatnachrichten des Gewinners live.
+
 Unabhängig von den Modulen erfasst der Bot jeden Stream (Ø Zuschauer, Peak, neue Follower, Subs, Bits, Raids) und zeigt die Werte in der Übersicht.
 
 Das Dashboard läuft im Browser. In Chrome oder Edge lässt es sich über „Als App installieren“ als eigenes Fenster mit Desktop-Symbol einrichten.
@@ -95,6 +97,7 @@ server/src/
   index.ts          Startpunkt
   config.ts         .env lesen und prüfen
   channels.ts       Kanäle starten und stoppen, Zugriffsregeln
+  giveaway.ts       Giveaways pro Kanal: Teilnahme per Stichwort, Follower-Prüfung, Ziehung
   auth.ts           Twitch-OAuth, Sitzungen
   db.ts, db/        SQLite/Postgres
   twitch/           Chat-Verbindung (chat.ts), Ereignisse pro Kanal (hub.ts), Helix-API, Streamer-Token

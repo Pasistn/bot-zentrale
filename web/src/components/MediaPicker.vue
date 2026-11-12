@@ -104,7 +104,7 @@ const size = (bytes: number) =>
 <style scoped>
 .picker {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
 .row {
@@ -115,22 +115,19 @@ const size = (bytes: number) =>
 }
 
 select {
-  font: inherit;
+  width: auto;
   min-width: 14rem;
   max-width: 22rem;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
 }
 
 .preview img,
 .preview video {
-  max-width: 160px;
+  display: block;
+  max-width: 180px;
   max-height: 120px;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border: 1px solid var(--line);
-  background: repeating-conic-gradient(#e8ecf7 0% 25%, #ffffff 0% 50%) 50% / 16px 16px;
+  background: repeating-conic-gradient(#232b3d 0% 25%, #1b2231 0% 50%) 50% / 14px 14px;
 }
 
 .preview audio {
@@ -138,7 +135,6 @@ select {
 }
 
 .error {
-  margin: 0;
   color: var(--fault);
   font-size: var(--step--1);
 }

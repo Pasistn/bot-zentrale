@@ -174,6 +174,7 @@ export class TwitchHub extends EventEmitter<HubEvents> {
     const login = userstate.username ?? "";
     const displayName = userstate["display-name"] ?? login;
     this.emit("chat", {
+      userId: String(userstate["user-id"] ?? ""),
       login,
       displayName,
       text,

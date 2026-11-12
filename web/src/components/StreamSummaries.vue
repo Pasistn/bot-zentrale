@@ -76,10 +76,10 @@ async function run(summary: SummaryView, action: "post" | "discard") {
 
 <template>
   <section class="highlights" aria-labelledby="highlights-title">
-    <div class="section-head">
+    <div class="page-head">
       <div>
         <h1 id="highlights-title">Stream-Highlights</h1>
-        <p class="mode">
+        <p class="intro">
           {{
             autoPost
               ? "Nach jedem Stream geht die Zusammenfassung direkt in Discord."
@@ -100,10 +100,10 @@ async function run(summary: SummaryView, action: "post" | "discard") {
 
     <p v-if="notice && notice.id === null" class="notice" :class="notice.kind" role="alert">{{ notice.text }}</p>
 
-    <p v-if="!module" class="hint">Das Modul „Stream-Zusammenfassung“ fehlt auf dem Server.</p>
-    <p v-else-if="module.status !== 'running'" class="hint">
+    <p v-if="!module" class="notice warn">Das Modul „Stream-Zusammenfassung“ fehlt auf dem Server.</p>
+    <p v-else-if="module.status !== 'running'" class="notice">
       Das Modul „Stream-Zusammenfassung“ ist aus. Deine Streams werden trotzdem erfasst und du kannst sie hier von Hand
-      posten. Damit nach dem Stream automatisch gepostet wird, schalte das Modul unten ein.
+      posten. Damit nach dem Stream automatisch gepostet wird, schalte das Modul weiter unten ein.
     </p>
 
     <p v-if="pendingCount > 0" class="pending-note" role="status">
@@ -115,87 +115,86 @@ async function run(summary: SummaryView, action: "post" | "discard") {
       Noch kein Stream erfasst. Sobald du live gehst, erscheint hier die laufende Zusammenfassung.
     </p>
 
-    <article v-for="s in visible" :key="s.id" class="card" :class="s.status">
-      <header class="card-head">
-        <span class="badge">
-          <span v-if="s.status === 'live'" class="dot" aria-hidden="true"></span>
-          {{ statusLabels[s.status] }}
-        </span>
-        <span class="when">
-          <time :datetime="s.startedAt">{{ date(s.startedAt) }}</time> · {{ duration(s.durationMinutes) }}
-        </span>
-      </header>
+    <div v-else class="panel list">
+      <article v-for="s in visible" :key="s.id" class="card" :class="s.status">
+        <header class="card-head">
+          <span class="badge">{{ statusLabels[s.status] }}</span>
+          <span class="when">
+            <time :datetime="s.startedAt">{{ date(s.startedAt) }}</time>, {{ duration(s.durationMinutes) }}
+          </span>
+        </header>
 
-      <p v-if="s.title" class="title">{{ s.title }}</p>
+        <p v-if="s.title" class="title">{{ s.title }}</p>
 
-      <dl class="stats">
-        <div>
-          <dt>Viewer-Peak</dt>
-          <dd>{{ s.peakViewers }}</dd>
+        <dl class="stats">
+          <div>
+            <dt>Viewer-Peak</dt>
+            <dd>{{ s.peakViewers }}</dd>
+          </div>
+          <div>
+            <dt>Raids</dt>
+            <dd>
+              {{ s.raids.count }}<small v-if="s.raids.count > 0"> mit {{ s.raids.viewers }} Viewern</small>
+            </dd>
+          </div>
+          <div>
+            <dt>Gifted Subs</dt>
+            <dd>{{ s.gifts.count }}</dd>
+          </div>
+          <div>
+            <dt>Chatnachrichten</dt>
+            <dd>{{ s.chatMessages.toLocaleString("de-DE") }}</dd>
+          </div>
+        </dl>
+
+        <p class="text">{{ s.text }}</p>
+
+        <details v-if="s.raids.list.length > 0 || s.gifts.gifters.length > 0 || s.games.length > 0" class="details">
+          <summary>Details</summary>
+          <p v-if="s.games.length > 0"><strong>Kategorie:</strong> {{ s.games.join(", ") }}</p>
+          <div v-if="s.raids.list.length > 0">
+            <strong>Raids</strong>
+            <ul>
+              <li v-for="(r, i) in s.raids.list" :key="`r${i}`">
+                <a :href="`https://twitch.tv/${r.login}`" target="_blank" rel="noopener noreferrer">{{ r.name }}</a>
+                mit {{ r.amount }} Viewern
+              </li>
+            </ul>
+          </div>
+          <div v-if="s.gifts.gifters.length > 0">
+            <strong>Schenker</strong>
+            <ul>
+              <li v-for="(g, i) in s.gifts.gifters" :key="`g${i}`">
+                {{ g.name }}: {{ g.amount === 1 ? "1 Sub" : `${g.amount} Subs` }}
+              </li>
+            </ul>
+          </div>
+        </details>
+
+        <p v-if="s.postError && s.status !== 'posted'" class="notice error" role="alert">
+          Posten fehlgeschlagen: {{ s.postError }}
+        </p>
+
+        <div v-if="s.status === 'pending' || s.status === 'discarded'" class="tools">
+          <button type="button" class="btn btn-primary" :disabled="busy !== null" @click="run(s, 'post')">
+            {{ busy === s.id ? "Postet …" : "In Discord posten" }}
+          </button>
+          <button
+            v-if="s.status === 'pending'"
+            type="button"
+            class="btn btn-ghost"
+            :disabled="busy !== null"
+            @click="run(s, 'discard')"
+          >
+            Verwerfen
+          </button>
         </div>
-        <div>
-          <dt>Raids</dt>
-          <dd>
-            {{ s.raids.count }}<small v-if="s.raids.count > 0"> · {{ s.raids.viewers }} Viewer</small>
-          </dd>
-        </div>
-        <div>
-          <dt>Gifted Subs</dt>
-          <dd>{{ s.gifts.count }}</dd>
-        </div>
-        <div>
-          <dt>Chatnachrichten</dt>
-          <dd>{{ s.chatMessages.toLocaleString("de-DE") }}</dd>
-        </div>
-      </dl>
 
-      <p class="text">{{ s.text }}</p>
-
-      <details v-if="s.raids.list.length > 0 || s.gifts.gifters.length > 0 || s.games.length > 0" class="details">
-        <summary>Details</summary>
-        <p v-if="s.games.length > 0"><strong>Kategorie:</strong> {{ s.games.join(", ") }}</p>
-        <div v-if="s.raids.list.length > 0">
-          <strong>Raids</strong>
-          <ul>
-            <li v-for="(r, i) in s.raids.list" :key="`r${i}`">
-              <a :href="`https://twitch.tv/${r.login}`" target="_blank" rel="noopener noreferrer">{{ r.name }}</a>
-              – {{ r.amount }} Viewer
-            </li>
-          </ul>
-        </div>
-        <div v-if="s.gifts.gifters.length > 0">
-          <strong>Schenker</strong>
-          <ul>
-            <li v-for="(g, i) in s.gifts.gifters" :key="`g${i}`">
-              {{ g.name }} – {{ g.amount === 1 ? "1 Sub" : `${g.amount} Subs` }}
-            </li>
-          </ul>
-        </div>
-      </details>
-
-      <p v-if="s.postError && s.status !== 'posted'" class="fault" role="alert">
-        Posten fehlgeschlagen: {{ s.postError }}
-      </p>
-
-      <div v-if="s.status === 'pending' || s.status === 'discarded'" class="tools">
-        <button type="button" class="btn btn-primary" :disabled="busy !== null" @click="run(s, 'post')">
-          {{ busy === s.id ? "Postet …" : "In Discord posten" }}
-        </button>
-        <button
-          v-if="s.status === 'pending'"
-          type="button"
-          class="btn btn-ghost"
-          :disabled="busy !== null"
-          @click="run(s, 'discard')"
-        >
-          Verwerfen
-        </button>
-      </div>
-
-      <p v-if="notice && notice.id === s.id" class="notice" :class="notice.kind" :role="notice.kind === 'error' ? 'alert' : 'status'">
-        {{ notice.text }}
-      </p>
-    </article>
+        <p v-if="notice && notice.id === s.id" class="notice" :class="notice.kind" :role="notice.kind === 'error' ? 'alert' : 'status'">
+          {{ notice.text }}
+        </p>
+      </article>
+    </div>
 
     <button
       v-if="summaries.length > COLLAPSED_COUNT"
@@ -212,123 +211,87 @@ async function run(summary: SummaryView, action: "post" | "discard") {
 .highlights {
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-}
-
-.section-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
   gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.section-head h1 {
-  font-size: var(--step-2);
-  letter-spacing: -0.015em;
-}
-
-.mode {
-  margin: 0.3rem 0 0;
-  color: var(--text-muted);
-  font-size: var(--step--1);
 }
 
 .auto {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.75rem;
   font-size: var(--step--1);
-  font-weight: 500;
-  background: var(--desk-raised);
-  border: 1px solid var(--line);
-  padding: 0.35rem 0.45rem 0.35rem 0.8rem;
-  border-radius: 999px;
-}
-
-.hint,
-.empty {
-  margin: 0;
-  color: var(--text-muted);
-  border: 1px dashed var(--line-strong);
-  border-radius: 10px;
-  padding: 1rem 1.25rem;
-  background: var(--desk);
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
+  font-weight: 550;
 }
 
 .pending-note {
-  margin: 0;
   font-size: var(--step--1);
   color: var(--warn);
-  font-weight: 500;
+  font-weight: 550;
+}
+
+.list {
+  overflow: hidden;
 }
 
 .card {
-  background: var(--desk);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
-  padding: 1rem 1.25rem;
+  position: relative;
+  display: grid;
+  gap: 0.8rem;
+  padding: 1.15rem 1.25rem 1.15rem 1.5rem;
 }
 
-.card.live {
-  border-color: rgba(47, 107, 255, 0.5);
+.card + .card {
+  border-top: 1px solid var(--line);
 }
 
-.card.pending {
-  border-color: var(--warn);
+.card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--line);
+}
+
+.card.live::before {
+  background: var(--live);
+}
+
+.card.pending::before {
+  background: var(--warn);
+}
+
+.card.posted::before {
+  background: var(--on);
 }
 
 .card.discarded {
-  opacity: 0.7;
+  color: var(--text-muted);
 }
 
 .card-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  align-items: baseline;
+  gap: 0.9rem;
   flex-wrap: wrap;
 }
 
 .badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
   font-size: var(--step--1);
-  font-weight: 600;
-  padding: 0.15rem 0.65rem;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: var(--desk-raised);
+  font-weight: 650;
   color: var(--text-muted);
 }
 
 .live .badge {
-  color: var(--tally);
-  border-color: var(--tally);
-}
-
-.live .badge .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow: 0 0 0 3px var(--tally-glow);
+  color: var(--live);
 }
 
 .pending .badge {
   color: var(--warn);
-  border-color: var(--warn);
 }
 
 .posted .badge {
-  color: var(--ok);
-  border-color: var(--ok);
+  color: var(--on);
 }
 
 .when {
@@ -337,23 +300,20 @@ async function run(summary: SummaryView, action: "post" | "discard") {
 }
 
 .title {
-  margin: 0.6rem 0 0;
-  font-weight: 500;
+  font-weight: 550;
   overflow-wrap: anywhere;
 }
 
 .stats {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.5rem;
-  margin: 0.8rem 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 2.25rem;
+  margin: 0;
 }
 
 .stats div {
-  background: var(--desk-raised);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 0.5rem 0.7rem;
+  display: flex;
+  flex-direction: column-reverse;
 }
 
 .stats dt {
@@ -362,91 +322,59 @@ async function run(summary: SummaryView, action: "post" | "discard") {
 }
 
 .stats dd {
-  margin: 0.1rem 0 0;
-  font-family: var(--font-display);
+  margin: 0;
   font-size: var(--step-2);
-  font-weight: 700;
-  line-height: 1.2;
+  font-stretch: 75%;
+  font-weight: 650;
+  line-height: 1.15;
   font-variant-numeric: tabular-nums;
 }
 
 .stats small {
-  font-family: var(--font-body);
   font-size: var(--step--1);
+  font-stretch: 100%;
   font-weight: 400;
   color: var(--text-muted);
 }
 
 .text {
-  margin: 0.8rem 0 0;
   color: var(--text-muted);
+  max-width: 72ch;
 }
 
 .details {
-  margin-top: 0.6rem;
   font-size: var(--step--1);
+  color: var(--text-muted);
+  display: grid;
+  gap: 0.5rem;
 }
 
 .details summary {
   cursor: pointer;
-  color: var(--tally);
-  font-weight: 500;
+  width: fit-content;
 }
 
-.details p,
-.details > div {
-  margin: 0.5rem 0 0;
+.details summary:hover {
+  color: var(--text);
 }
 
 .details ul {
-  margin: 0.2rem 0 0;
-  padding-left: 1.2rem;
+  margin: 0.25rem 0 0;
+  padding-left: 1.1rem;
 }
 
-.details a {
-  color: var(--tally);
-}
-
-.fault {
-  margin: 0.8rem 0 0;
-  padding: 0.6rem 0.8rem;
-  border-radius: 8px;
-  background: var(--fault-bg);
-  color: var(--fault);
-  font-size: var(--step--1);
+.details strong {
+  color: var(--text);
+  font-weight: 550;
 }
 
 .tools {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-top: 0.9rem;
-}
-
-.notice {
-  margin: 0.6rem 0 0;
-  font-size: var(--step--1);
-}
-
-.notice.ok {
-  color: var(--ok);
-}
-
-.notice.error {
-  color: var(--fault);
 }
 
 .more {
   align-self: flex-start;
-}
-
-@media (max-width: 520px) {
-  .stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  
-  .stats dd {
-    font-size: var(--step-1);
-  }
 }
 </style>

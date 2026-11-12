@@ -1,16 +1,19 @@
 <script setup lang="ts">
+import banner from "../assets/banner.png";
+
 defineProps<{ error: string | null }>();
 defineEmits<{ retry: [] }>();
 </script>
 
 <template>
   <main class="login">
-    <div class="panel">
-      <span class="lamp" aria-hidden="true"></span>
-      <h1>Q2-Zentrale</h1>
-      <p class="lead">Schalte die Funktionen deines Stream-Bots an und aus und passe sie an.</p>
+    <img class="banner" :src="banner" alt="" />
 
-      <p v-if="error" class="error" role="alert">{{ error }}</p>
+    <div class="panel">
+      <h1>Q2-Zentrale</h1>
+      <p class="lead">Module, Overlays und Giveaways für deinen Stream an einem Ort.</p>
+
+      <p v-if="error" class="notice error" role="alert">{{ error }}</p>
 
       <a class="btn btn-primary twitch" href="/auth/login">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -22,7 +25,7 @@ defineEmits<{ retry: [] }>();
         Mit Twitch anmelden
       </a>
 
-      <p class="hint">Zugriff haben nur freigeschaltete Streamer und die Mods, denen sie Zugriff gegeben haben.</p>
+      <p class="hint">Zugriff haben freigeschaltete Streamer und die Mods, die sie eingetragen haben.</p>
     </div>
   </main>
 </template>
@@ -31,65 +34,48 @@ defineEmits<{ retry: [] }>();
 .login {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: 1.5rem;
+  grid-template-rows: auto 1fr;
+  justify-items: center;
+}
+
+.banner {
+  width: 100%;
+  height: clamp(11rem, 42vh, 26rem);
+  object-fit: cover;
+  object-position: center 48%;
+  border-bottom: 1px solid var(--line);
 }
 
 .panel {
-  width: min(100%, 26rem);
-  background: var(--desk);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
-  padding: 2.25rem 2rem 2rem;
-}
-
-.lamp {
-  display: block;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--tally);
-  box-shadow: 0 0 0 6px var(--tally-glow);
-  margin-bottom: 1.5rem;
+  width: min(100% - 2rem, 26rem);
+  margin-top: -3.5rem;
+  margin-bottom: 3rem;
+  align-self: start;
+  display: grid;
+  gap: 1.1rem;
+  padding: 2rem 1.9rem 1.8rem;
+  position: relative;
+  border-top: 4px solid var(--accent);
 }
 
 h1 {
   font-size: var(--step-3);
-  letter-spacing: -0.02em;
-  background: var(--frost);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  font-stretch: 70%;
+  font-weight: 700;
 }
 
 .lead {
   color: var(--text-muted);
-  margin: 0.75rem 0 1.75rem;
-}
-
-.error {
-  background: var(--fault-bg);
-  border: 1px solid var(--fault);
-  color: var(--fault);
-  padding: 0.7rem 0.85rem;
-  border-radius: 8px;
-  margin: 0 0 1.25rem;
-  font-size: var(--step--1);
+  margin-top: -0.5rem;
 }
 
 .twitch {
-  width: 100%;
-  justify-content: center;
-  padding: 0.8rem 1rem;
+  justify-self: start;
+  padding: 0.7rem 1.2rem;
   font-size: var(--step-0);
-  text-decoration: none;
 }
 
 .hint {
-  margin: 1.25rem 0 0;
   color: var(--text-faint);
   font-size: var(--step--1);
 }

@@ -7,6 +7,7 @@ export interface WatchStreak {
 }
 
 export interface ChatMessage {
+  userId: string;
   login: string;
   displayName: string;
   text: string;

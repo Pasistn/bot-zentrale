@@ -1,5 +1,5 @@
 import { onBeforeUnmount, ref } from "vue";
-import type { LiveMessage, LogEntry, ModuleView, StatsOverview, SummaryView, TwitchStatus } from "../types";
+import type { GiveawayState, LiveMessage, LogEntry, ModuleView, StatsOverview, SummaryView, TwitchStatus } from "../types";
 
 const MAX_LOGS = 200;
 
@@ -9,6 +9,7 @@ export function useLive(onUnauthorized: () => void) {
   const summaries = ref<SummaryView[]>([]);
   const stats = ref<StatsOverview>({ streams: [], followersAvailable: true });
   const twitch = ref<TwitchStatus | null>(null);
+  const giveaway = ref<GiveawayState | null>(null);
   const connected = ref(false);
   const loaded = ref(false);
 
@@ -32,6 +33,7 @@ export function useLive(onUnauthorized: () => void) {
         logs.value = message.logs.slice(-MAX_LOGS);
         summaries.value = message.summaries;
         stats.value = message.stats;
+        giveaway.value = message.giveaway;
         twitch.value = message.twitch;
         loaded.value = true;
         break;
@@ -49,6 +51,9 @@ export function useLive(onUnauthorized: () => void) {
         break;
       case "twitch":
         twitch.value = message.twitch;
+        break;
+      case "giveaway":
+        giveaway.value = message.giveaway;
         break;
     }
   }
@@ -98,5 +103,5 @@ export function useLive(onUnauthorized: () => void) {
   connect();
   onBeforeUnmount(close);
 
-  return { modules, logs, summaries, stats, twitch, connected, loaded, replaceModule, replaceSummary, close };
+  return { modules, logs, summaries, stats, twitch, giveaway, connected, loaded, replaceModule, replaceSummary, close };
 }

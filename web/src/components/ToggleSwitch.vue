@@ -21,39 +21,39 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
 <style scoped>
 .switch {
   position: relative;
-  width: 3.25rem;
-  height: 1.75rem;
+  width: 2.75rem;
+  height: 1.5rem;
   border-radius: 999px;
   border: 1px solid var(--line-strong);
   background: var(--field);
   padding: 0;
   flex-shrink: 0;
-  transition: background 0.18s, border-color 0.18s;
+  transition: background 0.15s, border-color 0.15s;
 }
 
 .switch.on {
-  background: var(--tally);
-  border-color: var(--tally);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .switch:disabled {
-  opacity: 0.55;
+  opacity: 0.5;
   cursor: progress;
 }
 
 .knob {
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 1.25rem;
-  height: 1.25rem;
+  top: 2px;
+  left: 2px;
+  width: 1.15rem;
+  height: 1.15rem;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: transform 0.18s, background 0.18s;
+  transition: transform 0.15s, background 0.15s;
 }
 
 .on .knob {
-  transform: translateX(1.5rem);
-  background: var(--tally-ink);
+  transform: translateX(1.25rem);
+  background: var(--accent-ink);
 }
 </style>

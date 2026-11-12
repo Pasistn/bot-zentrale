@@ -19,7 +19,7 @@ const statusText = computed(() => {
     case "running":
       return "Läuft";
     case "error":
-      return "Gestoppt wegen Fehler";
+      return "Gestoppt";
     default:
       return props.module.enabled ? "Startet …" : "Aus";
   }
@@ -61,14 +61,14 @@ function onSaved(module: ModuleView) {
 </script>
 
 <template>
-  <article class="strip" :class="module.status">
+  <article class="strip" :class="[module.status, { open }]">
     <div class="row">
-      <span class="tally" aria-hidden="true"></span>
-
       <div class="info">
-        <h2>{{ module.name }}</h2>
+        <div class="title">
+          <h3>{{ module.name }}</h3>
+          <span class="state">{{ statusText }}</span>
+        </div>
         <p class="desc">{{ module.description }}</p>
-        <p class="state">{{ statusText }}</p>
       </div>
 
       <ToggleSwitch
@@ -79,12 +79,12 @@ function onSaved(module: ModuleView) {
       />
     </div>
 
-    <p v-if="module.error" class="fault" role="alert">{{ module.error }}</p>
+    <p v-if="module.error" class="notice error" role="alert">{{ module.error }}</p>
 
     <div class="tools">
       <button
         type="button"
-        class="btn btn-ghost"
+        class="btn"
         :aria-expanded="open"
         :aria-controls="`settings-${module.id}`"
         @click="open = !open"
@@ -95,7 +95,7 @@ function onSaved(module: ModuleView) {
         v-for="action in module.actions"
         :key="action.id"
         type="button"
-        class="btn"
+        class="btn btn-ghost"
         :disabled="actionBusy !== null"
         @click="runAction(action.id)"
       >
@@ -103,22 +103,22 @@ function onSaved(module: ModuleView) {
       </button>
     </div>
 
-    <details v-if="module.overlayUrl" class="overlay" :open="standalone">
-      <summary>{{ standalone ? "Eigener Link für OBS" : "Einzeln einbinden (optional)" }}</summary>
-      <p v-if="standalone" class="help">
-        Dieses Overlay steht auf „Nur einzeln“ und fehlt deshalb im gemeinsamen Link. Füge diesen Link in OBS als eigene
-        Browserquelle ein und verschieb sie dort frei.
-      </p>
-      <p v-else class="help">
-        Normalerweise reicht der gemeinsame Link oben auf dieser Seite. Willst du dieses Overlay in OBS frei verschieben,
-        stell in den Einstellungen die Position auf „Nur einzeln“ und nimm diesen Link als eigene Browserquelle.
-      </p>
-      <CopyLink :id="`overlay-${module.id}`" :url="module.overlayUrl" />
-    </details>
-
     <p v-if="notice" class="notice" :class="notice.kind" :role="notice.kind === 'error' ? 'alert' : 'status'">
       {{ notice.text }}
     </p>
+
+    <details v-if="module.overlayUrl" class="single" :open="standalone">
+      <summary>{{ standalone ? "Eigener Link für OBS" : "Einzeln in OBS einbinden" }}</summary>
+      <p v-if="standalone">
+        Dieses Overlay steht auf „Nur einzeln“ und fehlt deshalb im gemeinsamen Link. Leg in OBS eine eigene
+        Browserquelle mit diesem Link an.
+      </p>
+      <p v-else>
+        Meist reicht der gemeinsame Link. Willst du dieses Overlay in OBS frei verschieben, stell die Position auf „Nur
+        einzeln“ und nimm diesen Link.
+      </p>
+      <CopyLink :id="`overlay-${module.id}`" :url="module.overlayUrl" />
+    </details>
 
     <SettingsForm v-if="open" :id="`settings-${module.id}`" :module="module" @saved="onSaved" />
   </article>
@@ -126,132 +126,100 @@ function onSaved(module: ModuleView) {
 
 <style scoped>
 .strip {
-  background: var(--desk);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
-  padding: 1.1rem 1.25rem;
-}
-
-.strip.running {
-  border-color: rgba(47, 107, 255, 0.5);
-}
-
-.strip.error {
-  border-color: var(--fault);
-}
-
-.row {
+  position: relative;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 1rem;
-  align-items: start;
+  gap: 0.85rem;
+  padding: 1.15rem 1.25rem 1.15rem 1.5rem;
 }
 
-.tally {
-  width: 12px;
-  height: 12px;
-  margin-top: 0.4rem;
-  border-radius: 50%;
+.strip + .strip {
+  border-top: 1px solid var(--line);
+}
+
+.strip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
   background: var(--line);
-  transition: background 0.25s, box-shadow 0.25s;
+  transition: background 0.2s;
 }
 
-.running .tally {
-  background: var(--tally);
-  box-shadow: 0 0 0 5px var(--tally-glow);
+.strip.running::before {
+  background: var(--on);
 }
 
-.error .tally {
+.strip.error::before {
   background: var(--fault);
 }
 
-h2 {
-  font-size: var(--step-1);
+.row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1.25rem;
 }
 
-.desc {
-  margin: 0.3rem 0 0;
-  color: var(--text-muted);
-  max-width: 62ch;
+.title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+h3 {
+  font-size: var(--step-1);
+  font-stretch: 88%;
+  font-weight: 600;
 }
 
 .state {
-  margin: 0.45rem 0 0;
   font-size: var(--step--1);
   color: var(--text-faint);
 }
 
 .running .state {
-  color: var(--tally);
+  color: var(--on);
 }
 
 .error .state {
   color: var(--fault);
 }
 
-.fault {
-  margin: 0.9rem 0 0 calc(12px + 1rem);
-  padding: 0.6rem 0.8rem;
-  border-radius: 8px;
-  background: var(--fault-bg);
-  color: var(--fault);
+.desc {
+  margin-top: 0.3rem;
+  color: var(--text-muted);
   font-size: var(--step--1);
+  max-width: 68ch;
 }
 
 .tools {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-  margin-top: 1rem;
-  padding-left: calc(12px + 1rem);
 }
 
-.overlay {
+.single {
   display: grid;
-  gap: 0.35rem;
-  margin-top: 1rem;
-  padding-left: calc(12px + 1rem);
+  gap: 0.5rem;
 }
 
-.overlay summary {
+.single summary {
   cursor: pointer;
+  width: fit-content;
   font-size: var(--step--1);
   color: var(--text-muted);
 }
 
-.overlay .help {
-  margin: 0;
+.single summary:hover {
+  color: var(--text);
+}
+
+.single p {
   color: var(--text-faint);
   font-size: var(--step--1);
-  max-width: 62ch;
-}
-
-.notice {
-  margin: 0.75rem 0 0;
-  padding-left: calc(12px + 1rem);
-  font-size: var(--step--1);
-}
-
-.notice.ok {
-  color: var(--ok);
-}
-
-.notice.error {
-  color: var(--fault);
-}
-
-@media (max-width: 520px) {
-  .tools,
-  .overlay,
-  .notice {
-    padding-left: 0;
-  }
-
-  .fault {
-    margin-left: 0;
-  }
+  max-width: 68ch;
 }
 </style>

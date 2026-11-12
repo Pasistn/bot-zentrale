@@ -127,6 +127,37 @@ export interface TwitchStatus {
   channel: string;
 }
 
+export interface GiveawayEntry {
+  login: string;
+  displayName: string;
+  followedAt: string | null;
+  enteredAt: string;
+  won: boolean;
+}
+
+export interface GiveawayWinner {
+  login: string;
+  displayName: string;
+  followedAt: string | null;
+  messages: { text: string; at: string }[];
+}
+
+export interface GiveawayState {
+  active: {
+    id: number;
+    keyword: string;
+    followerOnly: boolean;
+    minFollowMinutes: number;
+    status: "open" | "closed";
+    createdAt: string;
+    entries: GiveawayEntry[];
+    rejected: number;
+    winner: GiveawayWinner | null;
+  } | null;
+  recentWinners: { login: string; displayName: string; keyword: string; wonAt: string }[];
+  followCheckAvailable: boolean;
+}
+
 export type LiveMessage =
   | {
       type: "snapshot";
@@ -134,10 +165,12 @@ export type LiveMessage =
       logs: LogEntry[];
       summaries: SummaryView[];
       stats: StatsOverview;
+      giveaway: GiveawayState | null;
       twitch: TwitchStatus;
     }
   | { type: "stats"; stats: StatsOverview }
   | { type: "modules"; modules: ModuleView[] }
   | { type: "summaries"; summaries: SummaryView[] }
   | { type: "log"; entry: LogEntry }
-  | { type: "twitch"; twitch: TwitchStatus };
+  | { type: "twitch"; twitch: TwitchStatus }
+  | { type: "giveaway"; giveaway: GiveawayState };

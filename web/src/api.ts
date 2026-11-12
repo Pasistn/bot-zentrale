@@ -1,4 +1,4 @@
-import type { ManagedChannel, MediaFile, Me, ModuleView, SettingValue, SummaryView } from "./types";
+import type { GiveawayState, ManagedChannel, MediaFile, Me, ModuleView, SettingValue, SummaryView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -57,5 +57,11 @@ export const api = {
     return { media: data.media };
   },
   renewOverlayToken: () => request<{ message: string }>("POST", "/api/overlays/renew-token", {}),
+  startGiveaway: (input: { keyword: string; followerOnly: boolean; minFollowDays: number; minFollowHours: number }) =>
+    request<{ giveaway: GiveawayState }>("POST", "/api/giveaway", input),
+  giveawayAction: (action: "close" | "reopen" | "draw" | "end") =>
+    request<{ giveaway: GiveawayState }>("POST", `/api/giveaway/${action}`, {}),
+  removeGiveawayEntry: (login: string) =>
+    request<{ giveaway: GiveawayState }>("DELETE", `/api/giveaway/entries/${encodeURIComponent(login)}`),
   discardSummary: (id: number) => request<{ summary: SummaryView }>("POST", `/api/summaries/${id}/discard`, {}),
 };

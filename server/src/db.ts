@@ -88,6 +88,29 @@ function schema(dialect: Dialect): string {
     value TEXT NOT NULL
   );
 
+  CREATE TABLE IF NOT EXISTS giveaways (
+    id ${id},
+    channel TEXT NOT NULL,
+    keyword TEXT NOT NULL,
+    follower_only INTEGER NOT NULL DEFAULT 0,
+    min_follow_minutes BIGINT NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'open',
+    created_at BIGINT NOT NULL,
+    ended_at BIGINT
+  );
+  CREATE INDEX IF NOT EXISTS giveaways_channel ON giveaways (channel, id);
+
+  CREATE TABLE IF NOT EXISTS giveaway_entries (
+    giveaway_id BIGINT NOT NULL,
+    login TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    display_name TEXT NOT NULL,
+    followed_at BIGINT,
+    entered_at BIGINT NOT NULL,
+    won_at BIGINT,
+    PRIMARY KEY (giveaway_id, login)
+  );
+
   CREATE TABLE IF NOT EXISTS twitch_tokens (
     login TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
@@ -220,6 +243,8 @@ const COPY_TABLES: Record<string, string[]> = {
     "peak_viewers", "status", "posted_at", "post_error", "chat_messages", "viewer_sum", "viewer_samples",
     "followers_start", "followers_end",
   ],
+  giveaways: ["id", "channel", "keyword", "follower_only", "min_follow_minutes", "status", "created_at", "ended_at"],
+  giveaway_entries: ["giveaway_id", "login", "user_id", "display_name", "followed_at", "entered_at", "won_at"],
   app_settings: ["key", "value"],
   twitch_tokens: ["login", "user_id", "access_token", "refresh_token", "scopes", "expires_at"],
 };
@@ -255,7 +280,7 @@ async function importFromSqlite(target: Db, sqlitePath: string, log: Log): Promi
       for (const row of data) statements.push([insert, columns.map((c) => row[c] ?? null)]);
       rows += data.length;
     }
-    for (const table of ["stream_events", "stream_sessions"]) {
+    for (const table of ["stream_events", "stream_sessions", "giveaways"]) {
       statements.push([
         `SELECT setval(pg_get_serial_sequence('${table}', 'id'), COALESCE((SELECT MAX(id) FROM ${table}), 0) + 1, false)`,
         [],
@@ -848,5 +873,132 @@ export const twitchTokenStore = {
 
   async delete(channel: string): Promise<void> {
     await db.run("DELETE FROM twitch_tokens WHERE login = ?", [channel]);
+  },
+};
+
+export type GiveawayStatus = "open" | "closed" | "ended";
+
+export interface Giveaway {
+  id: number;
+  channel: string;
+  keyword: string;
+  followerOnly: boolean;
+  minFollowMinutes: number;
+  status: GiveawayStatus;
+  createdAt: number;
+  endedAt: number | null;
+}
+
+export interface GiveawayEntry {
+  login: string;
+  userId: string;
+  displayName: string;
+  followedAt: number | null;
+  enteredAt: number;
+  wonAt: number | null;
+}
+
+interface GiveawayRow {
+  id: number;
+  channel: string;
+  keyword: string;
+  follower_only: number;
+  min_follow_minutes: number;
+  status: GiveawayStatus;
+  created_at: number;
+  ended_at: number | null;
+}
+
+interface GiveawayEntryRow {
+  login: string;
+  user_id: string;
+  display_name: string;
+  followed_at: number | null;
+  entered_at: number;
+  won_at: number | null;
+}
+
+const toGiveaway = (r: GiveawayRow): Giveaway => ({
+  id: Number(r.id),
+  channel: r.channel,
+  keyword: r.keyword,
+  followerOnly: Number(r.follower_only) === 1,
+  minFollowMinutes: Number(r.min_follow_minutes),
+  status: r.status,
+  createdAt: r.created_at,
+  endedAt: r.ended_at,
+});
+
+const toEntry = (r: GiveawayEntryRow): GiveawayEntry => ({
+  login: r.login,
+  userId: r.user_id,
+  displayName: r.display_name,
+  followedAt: r.followed_at,
+  enteredAt: r.entered_at,
+  wonAt: r.won_at,
+});
+
+export const giveawayStore = {
+  async current(channel: string): Promise<Giveaway | null> {
+    const row = await db.get<GiveawayRow>(
+      "SELECT * FROM giveaways WHERE channel = ? AND status <> 'ended' ORDER BY id DESC LIMIT 1",
+      [channel]
+    );
+    return row ? toGiveaway(row) : null;
+  },
+
+  async create(
+    channel: string,
+    input: { keyword: string; followerOnly: boolean; minFollowMinutes: number }
+  ): Promise<Giveaway> {
+    const row = await db.get<GiveawayRow>(
+      `INSERT INTO giveaways (channel, keyword, follower_only, min_follow_minutes, status, created_at)
+       VALUES (?, ?, ?, ?, 'open', ?) RETURNING *`,
+      [channel, input.keyword, input.followerOnly ? 1 : 0, input.minFollowMinutes, Date.now()]
+    );
+    return toGiveaway(row!);
+  },
+
+  async setStatus(id: number, status: GiveawayStatus): Promise<void> {
+    await db.run("UPDATE giveaways SET status = ?, ended_at = ? WHERE id = ?", [
+      status,
+      status === "ended" ? Date.now() : null,
+      id,
+    ]);
+  },
+
+  async entries(id: number): Promise<GiveawayEntry[]> {
+    const rows = await db.all<GiveawayEntryRow>(
+      "SELECT login, user_id, display_name, followed_at, entered_at, won_at FROM giveaway_entries WHERE giveaway_id = ? ORDER BY entered_at",
+      [id]
+    );
+    return rows.map(toEntry);
+  },
+
+  async addEntry(id: number, entry: Omit<GiveawayEntry, "wonAt">): Promise<boolean> {
+    const changed = await db.run(
+      `INSERT INTO giveaway_entries (giveaway_id, login, user_id, display_name, followed_at, entered_at)
+       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      [id, entry.login, entry.userId, entry.displayName, entry.followedAt, entry.enteredAt]
+    );
+    return changed > 0;
+  },
+
+  async removeEntry(id: number, login: string): Promise<void> {
+    await db.run("DELETE FROM giveaway_entries WHERE giveaway_id = ? AND login = ?", [id, login]);
+  },
+
+  async markWinner(id: number, login: string): Promise<void> {
+    await db.run("UPDATE giveaway_entries SET won_at = ? WHERE giveaway_id = ? AND login = ?", [Date.now(), id, login]);
+  },
+
+  async recentWinners(channel: string, limit: number): Promise<(GiveawayEntry & { keyword: string })[]> {
+    const rows = await db.all<GiveawayEntryRow & { keyword: string }>(
+      `SELECT e.login, e.user_id, e.display_name, e.followed_at, e.entered_at, e.won_at, g.keyword
+       FROM giveaway_entries e JOIN giveaways g ON g.id = e.giveaway_id
+       WHERE g.channel = ? AND e.won_at IS NOT NULL ORDER BY e.won_at DESC LIMIT ?`,
+      [channel, limit]
+    );
+    return rows.map((r) => ({ ...toEntry(r), keyword: r.keyword }));
   },
 };

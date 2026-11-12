@@ -3,84 +3,55 @@ import { computed } from "vue";
 import type { ModuleView } from "../types";
 import ModuleStrip from "./ModuleStrip.vue";
 
-const props = defineProps<{ title: string; intro: string; modules: ModuleView[]; empty: string }>();
+const props = withDefaults(
+  defineProps<{ title: string; intro: string; modules: ModuleView[]; empty: string; headingLevel?: "h1" | "h2" }>(),
+  { headingLevel: "h1" }
+);
 const emit = defineEmits<{ updated: [module: ModuleView] }>();
 
 const runningCount = computed(() => props.modules.filter((m) => m.status === "running").length);
 </script>
 
 <template>
-  <section class="modules" :aria-label="title">
-    <div class="section-head">
+  <section class="page" :aria-label="title">
+    <div class="page-head">
       <div>
-        <h1>{{ title }}</h1>
+        <component :is="headingLevel" :class="{ sub: headingLevel === 'h2' }">{{ title }}</component>
         <p class="intro">{{ intro }}</p>
       </div>
       <div class="side">
         <slot name="actions" />
-        <p v-if="modules.length > 0" class="count">{{ runningCount }} von {{ modules.length }} laufen</p>
+        <p v-if="modules.length > 0" class="count num">{{ runningCount }} von {{ modules.length }} aktiv</p>
       </div>
     </div>
 
     <slot />
 
     <p v-if="modules.length === 0" class="empty">{{ empty }}</p>
-    <ModuleStrip v-for="mod in modules" :key="mod.id" :module="mod" @updated="emit('updated', $event)" />
+    <div v-else class="panel list">
+      <ModuleStrip v-for="mod in modules" :key="mod.id" :module="mod" @updated="emit('updated', $event)" />
+    </div>
   </section>
 </template>
 
 <style scoped>
-.modules {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.section-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 0.25rem;
-  flex-wrap: wrap;
-}
-
-h1 {
+.sub {
   font-size: var(--step-2);
-  letter-spacing: -0.015em;
-}
-
-.intro {
-  margin: 0.3rem 0 0;
-  color: var(--text-muted);
-  font-size: var(--step--1);
-  max-width: 60ch;
 }
 
 .side {
   display: flex;
   align-items: center;
-  gap: 0.6rem;
+  gap: 1rem;
   flex-wrap: wrap;
 }
 
 .count {
-  margin: 0;
-  color: var(--text-muted);
+  color: var(--text-faint);
   font-size: var(--step--1);
-  background: var(--desk-raised);
-  padding: 0.15rem 0.65rem;
-  border-radius: 999px;
 }
 
-.empty {
-  color: var(--text-muted);
-  border: 1px dashed var(--line-strong);
-  border-radius: 10px;
-  padding: 1.5rem;
-  margin: 0;
-  background: var(--desk);
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
+.list {
+  overflow: hidden;
 }
 </style>

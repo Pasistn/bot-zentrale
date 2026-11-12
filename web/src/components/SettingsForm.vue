@@ -115,20 +115,20 @@ async function save() {
 
 <style scoped>
 .settings {
-  margin-top: 1.1rem;
-  padding: 1.1rem 0 0 calc(12px + 1rem);
-  border-top: 1px solid var(--line);
   display: grid;
-  gap: 1rem;
+  gap: 1.1rem;
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--line);
 }
 
 .field {
   display: grid;
   gap: 0.35rem;
+  max-width: 34rem;
 }
 
 label {
-  font-weight: 500;
+  font-weight: 550;
   font-size: var(--step--1);
   display: flex;
   align-items: center;
@@ -140,32 +140,12 @@ label {
   color: var(--text-faint);
 }
 
-input[type="text"],
-input[type="password"],
-input[type="number"] {
-  width: 100%;
-  max-width: 34rem;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.55rem 0.7rem;
-}
-
 input[type="number"] {
   max-width: 9rem;
 }
 
 select {
-  font: inherit;
-  max-width: 16rem;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.55rem 0.7rem;
-}
-
-input:focus-visible {
-  border-color: var(--tally);
+  max-width: 20rem;
 }
 
 .color-picker {
@@ -174,36 +154,31 @@ input:focus-visible {
   gap: 0.6rem;
   color: var(--text-muted);
   font-size: var(--step--1);
+  font-variant-numeric: tabular-nums;
 }
 
 input[type="color"] {
   width: 2.5rem;
   height: 2rem;
-  padding: 0;
+  padding: 2px;
   border: 1px solid var(--line);
-  border-radius: 6px;
-  background: none;
+  border-radius: var(--radius);
+  background: var(--field);
 }
 
 .check {
   cursor: pointer;
-}
-
-.check input {
-  width: 1.05rem;
-  height: 1.05rem;
-  accent-color: var(--tally);
+  font-weight: 500;
+  font-size: var(--step-0);
 }
 
 .help {
-  margin: 0;
   color: var(--text-faint);
   font-size: var(--step--1);
   max-width: 62ch;
 }
 
 .error {
-  margin: 0;
   color: var(--fault);
   font-size: var(--step--1);
 }
@@ -212,11 +187,5 @@ input[type="color"] {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
-}
-
-@media (max-width: 520px) {
-  .settings {
-    padding-left: 0;
-  }
 }
 </style>

@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { config } from "./config.js";
 import { accessStore, channelStore, legacyChannel, streamEventStore, type Channel } from "./db.js";
+import { GiveawayService } from "./giveaway.js";
 import { clearLogs, log } from "./logger.js";
 import { adoptLegacyMedia } from "./media.js";
 import { createModules } from "./modules/index.js";
@@ -46,9 +47,14 @@ export interface ChannelRuntime {
   hub: TwitchHub;
   tracker: StreamTracker;
   manager: ModuleManager;
+  giveaway: GiveawayService;
 }
 
-export class ChannelRegistry extends EventEmitter<{ modules: [channel: string]; removed: [channel: string] }> {
+export class ChannelRegistry extends EventEmitter<{
+  modules: [channel: string];
+  giveaway: [channel: string];
+  removed: [channel: string];
+}> {
   private readonly runtimes = new Map<string, ChannelRuntime>();
 
   constructor(private readonly chat: TwitchChat) {
@@ -96,12 +102,15 @@ export class ChannelRegistry extends EventEmitter<{ modules: [channel: string]; 
     const hub = this.chat.createHub(channel);
     const tracker = new StreamTracker(hub);
     const manager = new ModuleManager(channel, hub, tracker, createModules(channel));
-    const runtime = { channel, hub, tracker, manager };
+    const giveaway = new GiveawayService(channel, hub);
+    const runtime = { channel, hub, tracker, manager, giveaway };
     this.runtimes.set(channel, runtime);
 
     manager.on("changed", () => this.emit("modules", channel));
     await manager.init();
     await tracker.start();
+    await giveaway.start();
+    giveaway.on("changed", () => this.emit("giveaway", channel));
     log("info", "server", `Kanal #${channel} gestartet`);
   }
 
@@ -111,6 +120,7 @@ export class ChannelRegistry extends EventEmitter<{ modules: [channel: string]; 
     this.runtimes.delete(channel);
     await runtime.manager.shutdown();
     await runtime.tracker.stop();
+    runtime.giveaway.stop();
     runtime.manager.removeAllListeners();
     this.chat.removeHub(channel);
     clearOverlayStates(channel);

@@ -31,7 +31,7 @@ async function copy() {
       @focus="($event.target as HTMLInputElement).select()"
     />
     <button type="button" class="btn" :class="{ 'btn-primary': primary }" @click="copy">
-      {{ copied ? "Kopiert ✓" : "Link kopieren" }}
+      {{ copied ? "Kopiert" : "Link kopieren" }}
     </button>
     <button type="button" class="btn btn-ghost" @click="show = !show">{{ show ? "Verbergen" : "Anzeigen" }}</button>
     <p v-if="error" class="error" role="alert">Kopieren nicht möglich. Markiere den Link und kopiere ihn von Hand.</p>
@@ -49,17 +49,12 @@ input {
   flex: 1;
   min-width: 14rem;
   max-width: 34rem;
-  background: var(--field);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.5rem 0.7rem;
   font-family: var(--font-log);
   font-size: var(--step--1);
 }
 
 .error {
   flex-basis: 100%;
-  margin: 0;
   color: var(--fault);
   font-size: var(--step--1);
 }

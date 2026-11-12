@@ -35,42 +35,38 @@ function date(iso: string) {
   });
 }
 
-const tiles = computed(() => {
+const primary = computed(() => {
   const s = selected.value;
   if (!s) return [];
   return [
-    { label: "Ø Zuschauer", value: number(s.avgViewers), icon: "👀", accent: true },
-    { label: "Viewer-Peak", value: number(s.peakViewers), icon: "📈" },
-    {
-      label: "Neue Follower",
-      value: s.newFollowers === null ? "–" : `+${number(s.newFollowers)}`,
-      icon: "💜",
-      accent: true,
-    },
-    { label: "Subs", value: number(s.subs), icon: "⭐", hint: "Neue Subs und Resubs" },
-    { label: "Gifted Subs", value: number(s.giftedSubs), icon: "🎁" },
-    { label: "Bits", value: number(s.bits), icon: "💎" },
-    {
-      label: "Raids",
-      value: number(s.raids),
-      icon: "🚀",
-      hint: s.raids > 0 ? `${number(s.raidViewers)} Viewer insgesamt` : undefined,
-    },
-    { label: "Chatnachrichten", value: number(s.chatMessages), icon: "💬" },
-    { label: "Dauer", value: duration(s.durationMinutes), icon: "⏱️" },
+    { label: "Ø Zuschauer", value: number(s.avgViewers) },
+    { label: "Viewer-Peak", value: number(s.peakViewers) },
+    { label: "Neue Follower", value: s.newFollowers === null ? "–" : `+${number(s.newFollowers)}` },
+  ];
+});
+
+const secondary = computed(() => {
+  const s = selected.value;
+  if (!s) return [];
+  return [
+    { label: "Subs", value: number(s.subs) },
+    { label: "Gifted Subs", value: number(s.giftedSubs) },
+    { label: "Bits", value: number(s.bits) },
+    { label: s.raids > 0 ? `Raids, ${number(s.raidViewers)} Viewer` : "Raids", value: number(s.raids) },
+    { label: "Chatnachrichten", value: number(s.chatMessages) },
+    { label: "Dauer", value: duration(s.durationMinutes) },
   ];
 });
 </script>
 
 <template>
-  <section class="overview" aria-labelledby="overview-title">
-    <div class="section-head">
+  <section class="page" aria-labelledby="overview-title">
+    <div class="page-head">
       <div>
         <h1 id="overview-title">{{ selected?.live ? "Aktueller Stream" : "Letzter Stream" }}</h1>
-        <p v-if="selected" class="meta">
-          <span v-if="selected.live" class="live-badge">● Live</span>
-          {{ date(selected.startedAt) }}
-          <template v-if="selected.games.length"> · {{ selected.games.join(", ") }}</template>
+        <p v-if="selected" class="intro">
+          <span v-if="selected.live" class="on-air">Live</span>
+          {{ date(selected.startedAt) }}<template v-if="selected.games.length">, {{ selected.games.join(", ") }}</template>
         </p>
       </div>
       <label v-if="stats.streams.length > 1" class="picker">
@@ -84,204 +80,179 @@ const tiles = computed(() => {
     </div>
 
     <p v-if="!selected" class="empty">
-      Noch kein Stream erfasst. Sobald du live gehst, siehst du hier Zuschauer, Follower, Subs, Bits und mehr. Der Bot
-      fragt jede Minute bei Twitch nach, ob du live bist.
+      Noch kein Stream erfasst. Sobald du live gehst, erscheinen hier Zuschauer, Follower, Subs und Bits. Der Bot prüft
+      jede Minute, ob du live bist.
     </p>
 
     <template v-else>
-      <p v-if="selected.title" class="title">„{{ selected.title }}“</p>
+      <p v-if="selected.title" class="title">{{ selected.title }}</p>
 
-      <div class="tiles">
-        <div v-for="t in tiles" :key="t.label" class="tile" :class="{ accent: t.accent }">
-          <span class="icon" aria-hidden="true">{{ t.icon }}</span>
-          <span class="value">{{ t.value }}</span>
-          <span class="label">{{ t.label }}</span>
-          <span v-if="t.hint" class="hint">{{ t.hint }}</span>
-        </div>
+      <div class="panel board">
+        <dl class="primary">
+          <div v-for="t in primary" :key="t.label">
+            <dt>{{ t.label }}</dt>
+            <dd class="num">{{ t.value }}</dd>
+          </div>
+        </dl>
+        <dl class="secondary">
+          <div v-for="t in secondary" :key="t.label">
+            <dt>{{ t.label }}</dt>
+            <dd class="num">{{ t.value }}</dd>
+          </div>
+        </dl>
       </div>
 
-      <p v-if="!stats.followersAvailable" class="notice">
-        Für die Follower-Zahl braucht der Bot einmal deine Erlaubnis: Melde dich oben rechts ab und als Streamer wieder an.
-        Twitch fragt dann, ob der Bot deine Follower sehen darf.
+      <p v-if="!stats.followersAvailable" class="notice warn">
+        Für die Follower-Zahl braucht der Bot einmal deine Erlaubnis: abmelden und als Streamer wieder anmelden. Twitch
+        fragt dann, ob der Bot deine Follower sehen darf.
       </p>
-      <p v-else-if="selected.newFollowers === null" class="notice subtle">
+      <p v-else-if="selected.newFollowers === null" class="notice">
         Für diesen Stream gibt es keine Follower-Zahl. Gezählt wird ab dem ersten Stream nach deiner Anmeldung.
       </p>
 
-      <h2 v-if="stats.streams.length > 1" class="history-title">Letzte Streams</h2>
-      <div v-if="stats.streams.length > 1" class="history">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Datum</th>
-              <th scope="col">Dauer</th>
-              <th scope="col" class="num">Ø Zuschauer</th>
-              <th scope="col" class="num">Peak</th>
-              <th scope="col" class="num">Follower</th>
-              <th scope="col" class="num">Subs</th>
-              <th scope="col" class="num">Gifts</th>
-              <th scope="col" class="num">Bits</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="s in stats.streams"
-              :key="s.id"
-              :class="{ active: s.id === selected.id }"
-              tabindex="0"
-              @click="selectedId = s.id"
-              @keydown.enter="selectedId = s.id"
-            >
-              <td>
-                <span v-if="s.live" class="live-dot" aria-label="Live"></span>
-                {{ date(s.startedAt) }}
-              </td>
-              <td>{{ duration(s.durationMinutes) }}</td>
-              <td class="num">{{ number(s.avgViewers) }}</td>
-              <td class="num">{{ number(s.peakViewers) }}</td>
-              <td class="num">{{ s.newFollowers === null ? "–" : `+${number(s.newFollowers)}` }}</td>
-              <td class="num">{{ number(s.subs) }}</td>
-              <td class="num">{{ number(s.giftedSubs) }}</td>
-              <td class="num">{{ number(s.bits) }}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <template v-if="stats.streams.length > 1">
+        <h2 class="history-title">Letzte Streams</h2>
+        <div class="panel history">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Datum</th>
+                <th scope="col">Dauer</th>
+                <th scope="col" class="r">Ø Zuschauer</th>
+                <th scope="col" class="r">Peak</th>
+                <th scope="col" class="r">Follower</th>
+                <th scope="col" class="r">Subs</th>
+                <th scope="col" class="r">Gifts</th>
+                <th scope="col" class="r">Bits</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="s in stats.streams"
+                :key="s.id"
+                :class="{ active: s.id === selected.id }"
+                tabindex="0"
+                @click="selectedId = s.id"
+                @keydown.enter="selectedId = s.id"
+              >
+                <td>
+                  <span v-if="s.live" class="live-dot" aria-label="Live"></span>
+                  {{ date(s.startedAt) }}
+                </td>
+                <td>{{ duration(s.durationMinutes) }}</td>
+                <td class="r num">{{ number(s.avgViewers) }}</td>
+                <td class="r num">{{ number(s.peakViewers) }}</td>
+                <td class="r num">{{ s.newFollowers === null ? "–" : `+${number(s.newFollowers)}` }}</td>
+                <td class="r num">{{ number(s.subs) }}</td>
+                <td class="r num">{{ number(s.giftedSubs) }}</td>
+                <td class="r num">{{ number(s.bits) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </template>
     </template>
   </section>
 </template>
 
 <style scoped>
-.overview {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.section-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-h1 {
-  font-size: var(--step-2);
-  letter-spacing: -0.015em;
-}
-
-.meta {
-  margin: 0.3rem 0 0;
-  color: var(--text-muted);
+.on-air {
   font-size: var(--step--1);
-}
-
-.live-badge {
+  font-weight: 650;
   color: #fff;
-  background: #e5304f;
-  border-radius: 999px;
-  padding: 0.1rem 0.55rem;
-  margin-right: 0.35rem;
-  font-weight: 600;
+  background: var(--live);
+  border-radius: 4px;
+  padding: 0.05rem 0.45rem;
+  margin-right: 0.4rem;
 }
 
 .picker select {
-  font: inherit;
+  width: auto;
   font-size: var(--step--1);
-  color: var(--text);
-  background: var(--desk-raised);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 0.45rem 0.6rem;
+  background: var(--surface);
 }
 
 .title {
-  margin: 0;
   color: var(--text-muted);
-  font-style: italic;
+  font-size: var(--step-1);
+  max-width: 70ch;
 }
 
-.tiles {
+.board {
+  overflow: hidden;
+}
+
+dl {
+  margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-  gap: 0.75rem;
 }
 
-.tile {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  padding: 0.9rem 1rem;
-  background: var(--desk);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
-}
-
-.tile.accent {
-  border-color: rgba(47, 107, 255, 0.45);
-}
-
-.icon {
-  font-size: 1.1rem;
-}
-
-.value {
-  font-family: var(--font-display);
-  font-size: var(--step-3);
-  font-weight: 700;
-  line-height: 1.1;
-  font-variant-numeric: tabular-nums;
-}
-
-.tile.accent .value {
-  background: var(--frost);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.label {
-  font-size: var(--step--1);
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.hint {
-  font-size: 0.75rem;
-  color: var(--text-faint);
-}
-
-.notice {
+dd {
   margin: 0;
-  padding: 0.7rem 0.9rem;
-  border-radius: 8px;
-  background: rgba(47, 107, 255, 0.08);
-  border: 1px solid var(--line);
-  color: var(--text-muted);
-  font-size: var(--step--1);
 }
 
-.notice.subtle {
-  background: transparent;
+dt {
+  font-size: var(--step--1);
+  color: var(--text-muted);
+}
+
+.primary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.primary div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.2rem;
+  padding: 1.4rem 1.5rem 1.3rem;
+}
+
+.primary div + div {
+  border-left: 1px solid var(--line);
+}
+
+.primary dd {
+  font-size: var(--step-4);
+  font-stretch: 65%;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.primary div:first-child dd {
+  color: var(--accent);
+}
+
+.secondary {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.secondary div {
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.1rem;
+  padding: 0.9rem 1.25rem;
+}
+
+.secondary div + div {
+  border-left: 1px solid var(--line);
+}
+
+.secondary dd {
+  font-size: var(--step-2);
+  font-stretch: 75%;
+  font-weight: 650;
+  line-height: 1.15;
+  white-space: nowrap;
 }
 
 .history-title {
-  font-size: var(--step-1);
-  margin-top: 0.75rem;
+  margin-top: 0.5rem;
 }
 
 .history {
   overflow-x: auto;
-  background: var(--desk);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
-  box-shadow: var(--shadow);
 }
 
 table {
@@ -292,7 +263,7 @@ table {
 
 th,
 td {
-  padding: 0.55rem 0.8rem;
+  padding: 0.6rem 1rem;
   text-align: left;
   white-space: nowrap;
 }
@@ -303,23 +274,25 @@ th {
   border-bottom: 1px solid var(--line);
 }
 
-.num {
+.r {
   text-align: right;
-  font-variant-numeric: tabular-nums;
 }
 
 tbody tr {
   cursor: pointer;
 }
 
+tbody tr + tr td {
+  border-top: 1px solid var(--line);
+}
+
 tbody tr:hover,
 tbody tr:focus-visible {
-  background: rgba(47, 107, 255, 0.06);
+  background: var(--surface-2);
 }
 
 tbody tr.active {
-  background: rgba(47, 107, 255, 0.12);
-  font-weight: 500;
+  background: var(--accent-soft);
 }
 
 .live-dot {
@@ -327,18 +300,52 @@ tbody tr.active {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #e5304f;
-  margin-right: 0.3rem;
+  background: var(--live);
+  margin-right: 0.35rem;
 }
 
-.empty {
-  color: var(--text-muted);
-  border: 1px dashed var(--line-strong);
-  border-radius: 10px;
-  padding: 1.5rem;
-  margin: 0;
-  background: var(--desk);
-  backdrop-filter: var(--glass);
-  -webkit-backdrop-filter: var(--glass);
+@media (max-width: 900px) {
+  .secondary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .secondary div:nth-child(4) {
+    border-left: 0;
+  }
+
+  .secondary div:nth-child(n + 4) {
+    border-top: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 560px) {
+  .primary {
+    grid-template-columns: 1fr;
+  }
+
+  .primary div + div {
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .primary dd {
+    font-size: var(--step-3);
+  }
+
+  .secondary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .secondary div:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .secondary div:nth-child(4) {
+    border-left: 1px solid var(--line);
+  }
+
+  .secondary div:nth-child(n + 3) {
+    border-top: 1px solid var(--line);
+  }
 }
 </style>

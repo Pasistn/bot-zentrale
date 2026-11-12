@@ -14,6 +14,7 @@ import { overlayRoutes } from "./routes/overlays.js";
 import { summaryRoutes } from "./routes/summaries.js";
 import { ChannelRegistry } from "./channels.js";
 import { channelRoutes } from "./routes/channels.js";
+import { giveawayRoutes } from "./routes/giveaway.js";
 import { TwitchChat } from "./twitch/chat.js";
 
 async function main(): Promise<void> {
@@ -30,6 +31,7 @@ async function main(): Promise<void> {
   await app.register(moduleRoutes, { registry, chat });
   await app.register(summaryRoutes, { registry });
   await app.register(channelRoutes, { registry });
+  await app.register(giveawayRoutes, { registry });
   await app.register(liveRoutes, { registry, chat });
   await app.register(overlayRoutes, { registry });
   await app.register(mediaRoutes);
