@@ -245,7 +245,7 @@ function onLogout() {
 
       <OverviewPage v-else-if="page === 'overview'" :stats="live.stats.value" />
 
-      <GiveawayPage v-else-if="page === 'giveaway'" :state="live.giveaway.value" />
+      <GiveawayPage v-else-if="page === 'giveaway'" :state="live.giveaway.value" :me="props.me" />
 
       <ModuleSection
         v-else-if="page === 'obs'"

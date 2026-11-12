@@ -3,6 +3,7 @@ import { accessStore, channelStore, twitchTokenStore, type TwitchToken } from ".
 import { getUserId } from "./helix.js";
 
 export const LOGIN_SCOPES = ["moderator:read:followers"];
+export const STREAMER_SCOPES = ["channel:manage:redemptions", "channel:read:subscriptions"];
 
 export interface LoginTokens {
   accessToken: string;
@@ -25,6 +26,10 @@ export async function keepLoginToken(login: string, userId: string, tokens: Logi
 
   const channel = await tokenTarget(login);
   if (!channel) return false;
+
+  const existing = await twitchTokenStore.get(channel);
+  const wouldLoseScopes = existing?.userId === userId && existing.scopes.some((s) => !tokens.scopes.includes(s));
+  if (wouldLoseScopes) return false;
 
   await twitchTokenStore.save({
     login: channel,
@@ -69,12 +74,30 @@ export async function hasStreamerToken(channel: string): Promise<boolean> {
   return (await twitchTokenStore.get(channel)) !== null;
 }
 
-interface FollowersResponse {
-  total: number;
-  data: { user_id: string; followed_at: string }[];
+export async function hasPointsAccess(channel: string): Promise<boolean> {
+  const token = await twitchTokenStore.get(channel);
+  if (!token || !STREAMER_SCOPES.every((s) => token.scopes.includes(s))) return false;
+  return token.userId === (await getUserId(channel));
 }
 
-async function followers(channel: string, params: Record<string, string>): Promise<FollowersResponse | null> {
+export class TwitchApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
+    super(message);
+  }
+}
+
+interface StreamerRequest {
+  method?: string;
+  path: string;
+  params?: Record<string, string>;
+  body?: unknown;
+  accept?: number[];
+}
+
+async function streamerRequest<T>(channel: string, request: StreamerRequest): Promise<{ status: number; data: T | null } | null> {
   let token = await twitchTokenStore.get(channel);
   if (!token) return null;
 
@@ -86,29 +109,122 @@ async function followers(channel: string, params: Record<string, string>): Promi
       token = await refresh(token);
       if (!token) return null;
     }
-    const url = new URL("https://api.twitch.tv/helix/channels/followers");
-    url.searchParams.set("broadcaster_id", broadcasterId);
-    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    const url = new URL(`https://api.twitch.tv/helix/${request.path}`);
+    if (request.path !== "eventsub/subscriptions") url.searchParams.set("broadcaster_id", broadcasterId);
+    for (const [key, value] of Object.entries(request.params ?? {})) url.searchParams.set(key, value);
     const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token.accessToken}`, "Client-Id": config.twitchClientId },
+      method: request.method ?? "GET",
+      headers: {
+        Authorization: `Bearer ${token.accessToken}`,
+        "Client-Id": config.twitchClientId,
+        ...(request.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: request.body !== undefined ? JSON.stringify(request.body) : undefined,
     });
     if (res.status === 401 && attempt === 1) {
       token = { ...token, expiresAt: 0 };
       continue;
     }
-    if (!res.ok) throw new Error(`Twitch-API antwortet mit ${res.status} auf /channels/followers`);
-    return (await res.json()) as FollowersResponse;
+    if (!res.ok && !(request.accept ?? []).includes(res.status)) {
+      const detail = ((await res.json().catch(() => ({}))) as { message?: string }).message;
+      throw new TwitchApiError(
+        `Twitch-API antwortet mit ${res.status} auf /${request.path}${detail ? `: ${detail}` : ""}`,
+        res.status
+      );
+    }
+    const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | null);
+    return { status: res.status, data };
   }
   return null;
 }
 
+interface FollowersResponse {
+  total: number;
+  data: { user_id: string; followed_at: string }[];
+}
+
 export async function getFollowerCount(channel: string): Promise<number | null> {
-  return (await followers(channel, { first: "1" }))?.total ?? null;
+  const result = await streamerRequest<FollowersResponse>(channel, { path: "channels/followers", params: { first: "1" } });
+  return result?.data?.total ?? null;
 }
 
 export async function getFollowedAt(channel: string, userId: string): Promise<number | null | undefined> {
-  const result = await followers(channel, { user_id: userId });
-  if (!result) return undefined;
-  const entry = result.data[0];
+  const result = await streamerRequest<FollowersResponse>(channel, {
+    path: "channels/followers",
+    params: { user_id: userId },
+  });
+  if (!result?.data) return undefined;
+  const entry = result.data.data[0];
   return entry ? Date.parse(entry.followed_at) : null;
+}
+
+export async function isSubscriber(channel: string, userId: string): Promise<boolean | undefined> {
+  const result = await streamerRequest<{ data: unknown[] }>(channel, {
+    path: "subscriptions",
+    params: { user_id: userId },
+    accept: [404],
+  });
+  if (!result) return undefined;
+  return result.status === 200 && (result.data?.data.length ?? 0) > 0;
+}
+
+export async function createReward(channel: string, input: { title: string; cost: number; prompt: string }): Promise<string> {
+  const result = await streamerRequest<{ data: { id: string }[] }>(channel, {
+    method: "POST",
+    path: "channel_points/custom_rewards",
+    body: { ...input, is_enabled: true, should_redemptions_skip_request_queue: false, background_color: "#6FA8FF" },
+  });
+  const id = result?.data?.data[0]?.id;
+  if (!id) throw new Error("Twitch hat die Belohnung nicht angelegt.");
+  return id;
+}
+
+export async function setRewardPaused(channel: string, rewardId: string, paused: boolean): Promise<void> {
+  await streamerRequest(channel, {
+    method: "PATCH",
+    path: "channel_points/custom_rewards",
+    params: { id: rewardId },
+    body: { is_paused: paused },
+    accept: [404],
+  });
+}
+
+export async function deleteReward(channel: string, rewardId: string): Promise<void> {
+  await streamerRequest(channel, {
+    method: "DELETE",
+    path: "channel_points/custom_rewards",
+    params: { id: rewardId },
+    accept: [404],
+  });
+}
+
+export async function setRedemptionStatus(
+  channel: string,
+  rewardId: string,
+  redemptionId: string,
+  status: "FULFILLED" | "CANCELED"
+): Promise<void> {
+  await streamerRequest(channel, {
+    method: "PATCH",
+    path: "channel_points/custom_rewards/redemptions",
+    params: { reward_id: rewardId, id: redemptionId },
+    body: { status },
+    accept: [404],
+  });
+}
+
+export async function subscribeToRedemptions(channel: string, sessionId: string, rewardId: string): Promise<void> {
+  const broadcasterId = await getUserId(channel);
+  if (!broadcasterId) throw new Error(`Twitch kennt den Kanal ${channel} nicht.`);
+  const result = await streamerRequest(channel, {
+    method: "POST",
+    path: "eventsub/subscriptions",
+    body: {
+      type: "channel.channel_points_custom_reward_redemption.add",
+      version: "1",
+      condition: { broadcaster_user_id: broadcasterId, reward_id: rewardId },
+      transport: { method: "websocket", session_id: sessionId },
+    },
+  });
+  if (!result) throw new Error("Kein Twitch-Zugang für diesen Kanal.");
 }

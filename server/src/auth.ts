@@ -4,7 +4,7 @@ import { config } from "./config.js";
 import { canAccess, canManageAccess, channelsFor, defaultChannelFor, isOwner } from "./channels.js";
 import { channelStore, sessionStore, type Session, type SessionUser } from "./db.js";
 import { log } from "./logger.js";
-import { keepLoginToken, LOGIN_SCOPES, type LoginTokens } from "./twitch/user-token.js";
+import { keepLoginToken, LOGIN_SCOPES, STREAMER_SCOPES, type LoginTokens } from "./twitch/user-token.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -134,15 +134,16 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.decorateRequest("user", null);
   app.decorateRequest("channel", "");
 
-  app.get("/auth/login", async (_request, reply) => {
+  app.get<{ Querystring: { streamer?: string } }>("/auth/login", async (request, reply) => {
     const state = randomBytes(24).toString("hex");
-    reply.setCookie(STATE_COOKIE, state, { ...cookieBase(), path: "/auth", maxAge: 600 });
+    const streamer = request.query.streamer === "1";
+    reply.setCookie(STATE_COOKIE, `${state}.${streamer ? 1 : 0}`, { ...cookieBase(), path: "/auth", maxAge: 600 });
 
     const url = new URL("https://id.twitch.tv/oauth2/authorize");
     url.searchParams.set("client_id", config.twitchClientId);
     url.searchParams.set("redirect_uri", config.redirectUri);
     url.searchParams.set("response_type", "code");
-    url.searchParams.set("scope", LOGIN_SCOPES.join(" "));
+    url.searchParams.set("scope", (streamer ? [...LOGIN_SCOPES, ...STREAMER_SCOPES] : LOGIN_SCOPES).join(" "));
     url.searchParams.set("state", state);
 
     return reply.redirect(url.toString());
@@ -158,7 +159,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (error) return redirectWithError(reply, "denied");
 
       const storedState = rawState ? request.unsignCookie(rawState) : null;
-      if (!code || !state || !storedState?.valid || storedState.value !== state) {
+      const [expectedState, streamerFlag] = (storedState?.valid ? storedState.value ?? "" : "").split(".");
+      if (!code || !state || !expectedState || expectedState !== state) {
         log("warn", "auth", "Login abgelehnt: ungültiger oder abgelaufener State");
         return redirectWithError(reply, "state");
       }
@@ -193,6 +195,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
       reply.setCookie(SESSION_COOKIE, sessionId, { ...cookieBase(), path: "/", maxAge: maxAgeSeconds });
       log("info", "auth", `${user.displayName} hat sich angemeldet`, channel);
+      if (streamerFlag === "1") {
+        if (kept) log("info", "auth", "Kanalpunkte und Sub-Status für den Bot freigegeben", channel);
+        return reply.redirect(`${config.publicUrl}/#giveaway`);
+      }
       return reply.redirect(`${config.publicUrl}/`);
     }
   );

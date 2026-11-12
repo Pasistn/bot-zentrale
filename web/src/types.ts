@@ -133,29 +133,62 @@ export interface GiveawayEntry {
   followedAt: string | null;
   enteredAt: string;
   won: boolean;
+  tickets: number;
+  subscriber: boolean;
+  chance: number | null;
 }
 
 export interface GiveawayWinner {
   login: string;
   displayName: string;
   followedAt: string | null;
+  subscriber: boolean;
+  tickets: number;
   messages: { text: string; at: string }[];
 }
 
+export type GiveawayMode = "chat" | "points";
+
+export interface GiveawayRules {
+  mode: GiveawayMode;
+  keyword: string;
+  rewardTitle: string | null;
+  rewardCost: number | null;
+  maxTickets: number;
+  followerOnly: boolean;
+  minFollowMinutes: number;
+  subOnly: boolean;
+  subMultiplier: number;
+}
+
 export interface GiveawayState {
-  active: {
-    id: number;
-    keyword: string;
-    followerOnly: boolean;
-    minFollowMinutes: number;
-    status: "open" | "closed";
-    createdAt: string;
-    entries: GiveawayEntry[];
-    rejected: number;
-    winner: GiveawayWinner | null;
-  } | null;
+  active:
+    | (GiveawayRules & {
+        id: number;
+        status: "open" | "closed";
+        createdAt: string;
+        entries: GiveawayEntry[];
+        tickets: number;
+        rejected: number;
+        winner: GiveawayWinner | null;
+      })
+    | null;
   recentWinners: { login: string; displayName: string; keyword: string; wonAt: string }[];
   followCheckAvailable: boolean;
+  pointsAvailable: boolean;
+}
+
+export interface GiveawayInput {
+  mode: GiveawayMode;
+  keyword: string;
+  rewardTitle: string;
+  rewardCost: number;
+  maxTickets: number;
+  followerOnly: boolean;
+  minFollowDays: number;
+  minFollowHours: number;
+  subOnly: boolean;
+  subMultiplier: number;
 }
 
 export type LiveMessage =

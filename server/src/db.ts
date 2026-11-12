@@ -131,6 +131,15 @@ const ADDED_COLUMNS: [table: string, column: string, definition: string][] = [
   ["stream_sessions", "channel", "TEXT NOT NULL DEFAULT ''"],
   ["stream_events", "channel", "TEXT NOT NULL DEFAULT ''"],
   ["sessions", "channel", "TEXT NOT NULL DEFAULT ''"],
+  ["giveaways", "entry_mode", "TEXT NOT NULL DEFAULT 'chat'"],
+  ["giveaways", "reward_id", "TEXT"],
+  ["giveaways", "reward_title", "TEXT"],
+  ["giveaways", "reward_cost", "BIGINT"],
+  ["giveaways", "max_tickets", "BIGINT NOT NULL DEFAULT 1"],
+  ["giveaways", "sub_only", "INTEGER NOT NULL DEFAULT 0"],
+  ["giveaways", "sub_multiplier", "BIGINT NOT NULL DEFAULT 1"],
+  ["giveaway_entries", "tickets", "BIGINT NOT NULL DEFAULT 1"],
+  ["giveaway_entries", "subscriber", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 const INDEXES = [
@@ -243,8 +252,13 @@ const COPY_TABLES: Record<string, string[]> = {
     "peak_viewers", "status", "posted_at", "post_error", "chat_messages", "viewer_sum", "viewer_samples",
     "followers_start", "followers_end",
   ],
-  giveaways: ["id", "channel", "keyword", "follower_only", "min_follow_minutes", "status", "created_at", "ended_at"],
-  giveaway_entries: ["giveaway_id", "login", "user_id", "display_name", "followed_at", "entered_at", "won_at"],
+  giveaways: [
+    "id", "channel", "keyword", "follower_only", "min_follow_minutes", "status", "created_at", "ended_at", "entry_mode",
+    "reward_id", "reward_title", "reward_cost", "max_tickets", "sub_only", "sub_multiplier",
+  ],
+  giveaway_entries: [
+    "giveaway_id", "login", "user_id", "display_name", "followed_at", "entered_at", "won_at", "tickets", "subscriber",
+  ],
   app_settings: ["key", "value"],
   twitch_tokens: ["login", "user_id", "access_token", "refresh_token", "scopes", "expires_at"],
 };
@@ -877,13 +891,24 @@ export const twitchTokenStore = {
 };
 
 export type GiveawayStatus = "open" | "closed" | "ended";
+export type GiveawayMode = "chat" | "points";
 
-export interface Giveaway {
-  id: number;
-  channel: string;
+export interface GiveawayRules {
+  mode: GiveawayMode;
   keyword: string;
+  rewardTitle: string | null;
+  rewardCost: number | null;
+  maxTickets: number;
   followerOnly: boolean;
   minFollowMinutes: number;
+  subOnly: boolean;
+  subMultiplier: number;
+}
+
+export interface Giveaway extends GiveawayRules {
+  id: number;
+  channel: string;
+  rewardId: string | null;
   status: GiveawayStatus;
   createdAt: number;
   endedAt: number | null;
@@ -896,14 +921,23 @@ export interface GiveawayEntry {
   followedAt: number | null;
   enteredAt: number;
   wonAt: number | null;
+  tickets: number;
+  subscriber: boolean;
 }
 
 interface GiveawayRow {
   id: number;
   channel: string;
   keyword: string;
+  entry_mode: GiveawayMode;
+  reward_id: string | null;
+  reward_title: string | null;
+  reward_cost: number | null;
+  max_tickets: number;
   follower_only: number;
   min_follow_minutes: number;
+  sub_only: number;
+  sub_multiplier: number;
   status: GiveawayStatus;
   created_at: number;
   ended_at: number | null;
@@ -916,14 +950,23 @@ interface GiveawayEntryRow {
   followed_at: number | null;
   entered_at: number;
   won_at: number | null;
+  tickets: number;
+  subscriber: number;
 }
 
 const toGiveaway = (r: GiveawayRow): Giveaway => ({
   id: Number(r.id),
   channel: r.channel,
+  mode: r.entry_mode,
   keyword: r.keyword,
+  rewardId: r.reward_id,
+  rewardTitle: r.reward_title,
+  rewardCost: r.reward_cost === null ? null : Number(r.reward_cost),
+  maxTickets: Number(r.max_tickets),
   followerOnly: Number(r.follower_only) === 1,
   minFollowMinutes: Number(r.min_follow_minutes),
+  subOnly: Number(r.sub_only) === 1,
+  subMultiplier: Number(r.sub_multiplier),
   status: r.status,
   createdAt: r.created_at,
   endedAt: r.ended_at,
@@ -936,7 +979,11 @@ const toEntry = (r: GiveawayEntryRow): GiveawayEntry => ({
   followedAt: r.followed_at,
   enteredAt: r.entered_at,
   wonAt: r.won_at,
+  tickets: Number(r.tickets),
+  subscriber: Number(r.subscriber) === 1,
 });
+
+const ENTRY_COLUMNS = "login, user_id, display_name, followed_at, entered_at, won_at, tickets, subscriber";
 
 export const giveawayStore = {
   async current(channel: string): Promise<Giveaway | null> {
@@ -947,14 +994,25 @@ export const giveawayStore = {
     return row ? toGiveaway(row) : null;
   },
 
-  async create(
-    channel: string,
-    input: { keyword: string; followerOnly: boolean; minFollowMinutes: number }
-  ): Promise<Giveaway> {
+  async create(channel: string, rules: GiveawayRules & { rewardId?: string | null }): Promise<Giveaway> {
     const row = await db.get<GiveawayRow>(
-      `INSERT INTO giveaways (channel, keyword, follower_only, min_follow_minutes, status, created_at)
-       VALUES (?, ?, ?, ?, 'open', ?) RETURNING *`,
-      [channel, input.keyword, input.followerOnly ? 1 : 0, input.minFollowMinutes, Date.now()]
+      `INSERT INTO giveaways (channel, keyword, entry_mode, reward_id, reward_title, reward_cost, max_tickets,
+         follower_only, min_follow_minutes, sub_only, sub_multiplier, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?) RETURNING *`,
+      [
+        channel,
+        rules.keyword,
+        rules.mode,
+        rules.rewardId ?? null,
+        rules.rewardTitle,
+        rules.rewardCost,
+        rules.maxTickets,
+        rules.followerOnly ? 1 : 0,
+        rules.minFollowMinutes,
+        rules.subOnly ? 1 : 0,
+        rules.subMultiplier,
+        Date.now(),
+      ]
     );
     return toGiveaway(row!);
   },
@@ -969,7 +1027,7 @@ export const giveawayStore = {
 
   async entries(id: number): Promise<GiveawayEntry[]> {
     const rows = await db.all<GiveawayEntryRow>(
-      "SELECT login, user_id, display_name, followed_at, entered_at, won_at FROM giveaway_entries WHERE giveaway_id = ? ORDER BY entered_at",
+      `SELECT ${ENTRY_COLUMNS} FROM giveaway_entries WHERE giveaway_id = ? ORDER BY entered_at`,
       [id]
     );
     return rows.map(toEntry);
@@ -977,11 +1035,24 @@ export const giveawayStore = {
 
   async addEntry(id: number, entry: Omit<GiveawayEntry, "wonAt">): Promise<boolean> {
     const changed = await db.run(
-      `INSERT INTO giveaway_entries (giveaway_id, login, user_id, display_name, followed_at, entered_at)
-       VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
-      [id, entry.login, entry.userId, entry.displayName, entry.followedAt, entry.enteredAt]
+      `INSERT INTO giveaway_entries (giveaway_id, login, user_id, display_name, followed_at, entered_at, tickets, subscriber)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+      [
+        id,
+        entry.login,
+        entry.userId,
+        entry.displayName,
+        entry.followedAt,
+        entry.enteredAt,
+        entry.tickets,
+        entry.subscriber ? 1 : 0,
+      ]
     );
     return changed > 0;
+  },
+
+  async setTickets(id: number, login: string, tickets: number): Promise<void> {
+    await db.run("UPDATE giveaway_entries SET tickets = ? WHERE giveaway_id = ? AND login = ?", [tickets, id, login]);
   },
 
   async removeEntry(id: number, login: string): Promise<void> {
@@ -994,7 +1065,8 @@ export const giveawayStore = {
 
   async recentWinners(channel: string, limit: number): Promise<(GiveawayEntry & { keyword: string })[]> {
     const rows = await db.all<GiveawayEntryRow & { keyword: string }>(
-      `SELECT e.login, e.user_id, e.display_name, e.followed_at, e.entered_at, e.won_at, g.keyword
+      `SELECT e.login, e.user_id, e.display_name, e.followed_at, e.entered_at, e.won_at, e.tickets, e.subscriber,
+         COALESCE(g.reward_title, g.keyword) AS keyword
        FROM giveaway_entries e JOIN giveaways g ON g.id = e.giveaway_id
        WHERE g.channel = ? AND e.won_at IS NOT NULL ORDER BY e.won_at DESC LIMIT ?`,
       [channel, limit]

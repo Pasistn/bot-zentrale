@@ -12,7 +12,7 @@ Twitch-Bot mit Web-Dashboard für mehrere Streamer. Ein Server, eine Twitch-Anwe
 - **Top-Chatter (OBS)**: Live-Rangliste der aktivsten Chatter als Browserquelle.
 - **Watch-Streak-Alert (OBS)**: Alert mit Profilbild, Text und Ton. Eigene Bilder, Videos und Sounds lassen sich hochladen.
 
-Dazu kommt ein **Giveaway-Tool**: Zuschauer machen mit, indem sie ein Stichwort in den Chat schreiben. Auf Wunsch nur Follower, optional mit Mindestdauer in Tagen und Stunden. Die Follower-Bedingung wird beim Beitreten über die Twitch-API geprüft und beim Ziehen noch einmal. Gezogen wird mit `crypto.randomInt`, das Dashboard zeigt danach die Chatnachrichten des Gewinners live.
+Dazu kommt ein **Giveaway-Tool**. Mitmachen geht per Stichwort im Chat oder mit **Kanalpunkten**: Der Bot legt die Belohnung bei Twitch selbst an, empfängt Einlösungen über EventSub (WebSocket) und erstattet Punkte automatisch zurück, wenn jemand schon alle Lose hat oder eine Bedingung nicht erfüllt. Pro Giveaway einstellbar: Lose pro Person, nur Follower (optional mit Mindestdauer), nur Subscriber und ein Bonus-Faktor für Subscriber. Gezogen wird gewichtet nach Losen mit `crypto.randomInt`, die Follower-Bedingung wird beim Ziehen noch einmal geprüft, und das Dashboard zeigt danach die Chatnachrichten des Gewinners live.
 
 Unabhängig von den Modulen erfasst der Bot jeden Stream (Ø Zuschauer, Peak, neue Follower, Subs, Bits, Raids) und zeigt die Werte in der Übersicht.
 
@@ -100,7 +100,8 @@ server/src/
   giveaway.ts       Giveaways pro Kanal: Teilnahme per Stichwort, Follower-Prüfung, Ziehung
   auth.ts           Twitch-OAuth, Sitzungen
   db.ts, db/        SQLite/Postgres
-  twitch/           Chat-Verbindung (chat.ts), Ereignisse pro Kanal (hub.ts), Helix-API, Streamer-Token
+  twitch/           Chat-Verbindung (chat.ts), Ereignisse pro Kanal (hub.ts), EventSub für Kanalpunkte,
+                    Helix-API, Streamer-Token
   stream/           Stream-Erfassung und Statistik
   modules/          Module und Modul-Manager
   overlays/         Verteilung an OBS-Overlays
@@ -175,6 +176,7 @@ Mit `DATABASE_URL` nutzt der Bot Postgres statt SQLite. Beim ersten Start werden
 - `redirect_mismatch` bei Twitch: Die Callback-URL muss exakt `PUBLIC_URL` + `/auth/callback` sein, ohne Slash am Ende.
 - Nach dem Login wieder auf der Login-Seite: Dashboard über eine andere Adresse geöffnet als `PUBLIC_URL`, z. B. `127.0.0.1` statt `localhost`.
 - Die Follower-Zahl braucht das Token des Streamers oder eines Mods. Dafür einmal neu anmelden.
+- Kanalpunkte-Giveaways brauchen einen Affiliate- oder Partner-Kanal. Der Streamer schaltet sie einmal im Giveaway-Formular frei, das fragt bei Twitch die Rechte `channel:manage:redemptions` und `channel:read:subscriptions` an.
 - Der Bot liest den Chat anonym. Module, die selbst im Chat schreiben, brauchen später einen eigenen Bot-Account.
 
 ## Lizenz
