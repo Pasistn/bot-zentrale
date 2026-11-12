@@ -1063,14 +1063,41 @@ export const giveawayStore = {
     await db.run("UPDATE giveaway_entries SET won_at = ? WHERE giveaway_id = ? AND login = ?", [Date.now(), id, login]);
   },
 
-  async recentWinners(channel: string, limit: number): Promise<(GiveawayEntry & { keyword: string })[]> {
-    const rows = await db.all<GiveawayEntryRow & { keyword: string }>(
-      `SELECT e.login, e.user_id, e.display_name, e.followed_at, e.entered_at, e.won_at, e.tickets, e.subscriber,
-         COALESCE(g.reward_title, g.keyword) AS keyword
-       FROM giveaway_entries e JOIN giveaways g ON g.id = e.giveaway_id
-       WHERE g.channel = ? AND e.won_at IS NOT NULL ORDER BY e.won_at DESC LIMIT ?`,
+  async history(channel: string, limit: number): Promise<GiveawaySummary[]> {
+    const rows = await db.all<GiveawayRow & { entry_count: number; ticket_count: number }>(
+      `SELECT g.*, COUNT(e.login) AS entry_count, COALESCE(SUM(e.tickets), 0) AS ticket_count
+       FROM giveaways g LEFT JOIN giveaway_entries e ON e.giveaway_id = g.id
+       WHERE g.channel = ? AND g.status = 'ended'
+       GROUP BY g.id ORDER BY g.created_at DESC LIMIT ?`,
       [channel, limit]
     );
-    return rows.map((r) => ({ ...toEntry(r), keyword: r.keyword }));
+    if (rows.length === 0) return [];
+
+    const ids = rows.map((r) => Number(r.id));
+    const winners = await db.all<{ giveaway_id: number; display_name: string; won_at: number }>(
+      `SELECT giveaway_id, display_name, won_at FROM giveaway_entries
+       WHERE won_at IS NOT NULL AND giveaway_id IN (${ids.map(() => "?").join(", ")}) ORDER BY won_at`,
+      ids
+    );
+    return rows.map((r) => ({
+      ...toGiveaway(r),
+      entryCount: Number(r.entry_count),
+      ticketCount: Number(r.ticket_count),
+      winners: winners
+        .filter((w) => Number(w.giveaway_id) === Number(r.id))
+        .map((w) => ({ displayName: w.display_name, wonAt: w.won_at })),
+    }));
+  },
+
+  async endedEntries(channel: string, id: number): Promise<GiveawayEntry[] | null> {
+    const owner = await db.get("SELECT id FROM giveaways WHERE channel = ? AND id = ? AND status = 'ended'", [channel, id]);
+    if (!owner) return null;
+    return this.entries(id);
   },
 };
+
+export interface GiveawaySummary extends Giveaway {
+  entryCount: number;
+  ticketCount: number;
+  winners: { displayName: string; wonAt: number }[];
+}

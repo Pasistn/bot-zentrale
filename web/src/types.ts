@@ -161,6 +161,15 @@ export interface GiveawayRules {
   subMultiplier: number;
 }
 
+export interface GiveawayHistoryItem extends GiveawayRules {
+  id: number;
+  createdAt: string;
+  endedAt: string | null;
+  entryCount: number;
+  ticketCount: number;
+  winners: { displayName: string; wonAt: string }[];
+}
+
 export interface GiveawayState {
   active:
     | (GiveawayRules & {
@@ -173,7 +182,7 @@ export interface GiveawayState {
         winner: GiveawayWinner | null;
       })
     | null;
-  recentWinners: { login: string; displayName: string; keyword: string; wonAt: string }[];
+  history: GiveawayHistoryItem[];
   followCheckAvailable: boolean;
   pointsAvailable: boolean;
 }

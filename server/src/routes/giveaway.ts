@@ -33,6 +33,16 @@ export async function giveawayRoutes(app: FastifyInstance, opts: { registry: Cha
     });
   }
 
+  app.get<{ Params: { id: string } }>("/api/giveaway/history/:id", async (request, reply) => {
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id)) return reply.code(400).send({ error: "Ungültige ID." });
+    try {
+      return { entries: await giveaway(request).pastEntries(id) };
+    } catch (err) {
+      return handleError(reply, err);
+    }
+  });
+
   app.delete<{ Params: { login: string } }>("/api/giveaway/entries/:login", async (request, reply) => {
     try {
       const service = giveaway(request);

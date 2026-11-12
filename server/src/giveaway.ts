@@ -26,7 +26,7 @@ const MAX_COST = 1_000_000;
 const MAX_TITLE = 45;
 const RECHECK_AFTER_MS = 60_000;
 const WINNER_MESSAGES = 20;
-const RECENT_WINNERS = 10;
+const HISTORY_LIMIT = 30;
 const EMIT_DELAY_MS = 300;
 const REWARD_PROMPT =
   "Ein Los für das Giveaway. Bist du schon mit allen Losen dabei oder erfüllst die Bedingungen nicht, bekommst du die Punkte zurück.";
@@ -63,9 +63,18 @@ export interface GiveawayView {
         winner: GiveawayWinnerView | null;
       })
     | null;
-  recentWinners: { login: string; displayName: string; keyword: string; wonAt: string }[];
+  history: GiveawayHistoryItem[];
   followCheckAvailable: boolean;
   pointsAvailable: boolean;
+}
+
+export interface GiveawayHistoryItem extends GiveawayRules {
+  id: number;
+  createdAt: string;
+  endedAt: string | null;
+  entryCount: number;
+  ticketCount: number;
+  winners: { displayName: string; wonAt: string }[];
 }
 
 export interface GiveawayInput {
@@ -141,7 +150,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
   private readonly checking = new Set<string>();
   private readonly rejected = new Map<string, number>();
   private winner: { login: string; messages: { text: string; at: number }[] } | null = null;
-  private recentWinners: GiveawayView["recentWinners"] = [];
+  private history: GiveawayHistoryItem[] = [];
   private listener: RedemptionListener | null = null;
   private redemptions: Promise<void> = Promise.resolve();
   private emitTimer: NodeJS.Timeout | null = null;
@@ -159,7 +168,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
       for (const entry of await giveawayStore.entries(this.giveaway.id)) this.entries.set(entry.login, entry);
       if (this.giveaway.mode === "points" && this.giveaway.rewardId) this.listen(this.giveaway.rewardId);
     }
-    await this.loadRecentWinners();
+    await this.loadHistory();
     this.hub.on("chat", this.onChat);
   }
 
@@ -222,7 +231,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
                   : null,
             }
           : null,
-      recentWinners: this.recentWinners,
+      history: this.history,
       followCheckAvailable,
       pointsAvailable,
     };
@@ -309,7 +318,6 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
       await giveawayStore.markWinner(g.id, candidate.login);
       candidate.wonAt = Date.now();
       this.winner = { login: candidate.login, messages: [] };
-      await this.loadRecentWinners();
       log("info", "giveaway", `Gewinner: ${candidate.displayName}`, this.channel);
       this.changed();
       return;
@@ -343,7 +351,23 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     this.entries.clear();
     this.rejected.clear();
     this.winner = null;
+    await this.loadHistory();
     this.changed();
+  }
+
+  async pastEntries(id: number): Promise<GiveawayEntryView[]> {
+    const entries = await giveawayStore.endedEntries(this.channel, id);
+    if (!entries) throw new ValidationError("Dieses Giveaway gibt es nicht.");
+    return entries.map((e) => ({
+      login: e.login,
+      displayName: e.displayName,
+      followedAt: iso(e.followedAt),
+      enteredAt: new Date(e.enteredAt).toISOString(),
+      won: e.wonAt !== null,
+      tickets: e.tickets,
+      subscriber: e.subscriber,
+      chance: null,
+    }));
   }
 
   private describe(g: Giveaway): string {
@@ -523,12 +547,23 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     return followedAt !== null && Date.now() - followedAt >= g.minFollowMinutes * 60_000;
   }
 
-  private async loadRecentWinners(): Promise<void> {
-    this.recentWinners = (await giveawayStore.recentWinners(this.channel, RECENT_WINNERS)).map((w) => ({
-      login: w.login,
-      displayName: w.displayName,
-      keyword: w.keyword,
-      wonAt: new Date(w.wonAt!).toISOString(),
+  private async loadHistory(): Promise<void> {
+    this.history = (await giveawayStore.history(this.channel, HISTORY_LIMIT)).map((g) => ({
+      id: g.id,
+      mode: g.mode,
+      keyword: g.keyword,
+      rewardTitle: g.rewardTitle,
+      rewardCost: g.rewardCost,
+      maxTickets: g.maxTickets,
+      followerOnly: g.followerOnly,
+      minFollowMinutes: g.minFollowMinutes,
+      subOnly: g.subOnly,
+      subMultiplier: g.subMultiplier,
+      createdAt: new Date(g.createdAt).toISOString(),
+      endedAt: iso(g.endedAt),
+      entryCount: g.entryCount,
+      ticketCount: g.ticketCount,
+      winners: g.winners.map((w) => ({ displayName: w.displayName, wonAt: new Date(w.wonAt).toISOString() })),
     }));
   }
 

@@ -1,4 +1,4 @@
-import type { GiveawayInput, GiveawayState, ManagedChannel, MediaFile, Me, ModuleView, SettingValue, SummaryView } from "./types";
+import type { GiveawayEntry, GiveawayInput, GiveawayState, ManagedChannel, MediaFile, Me, ModuleView, SettingValue, SummaryView } from "./types";
 
 export class ApiError extends Error {
   constructor(message: string, public readonly status: number) {
@@ -61,6 +61,7 @@ export const api = {
     request<{ giveaway: GiveawayState }>("POST", "/api/giveaway", input),
   giveawayAction: (action: "close" | "reopen" | "draw" | "end") =>
     request<{ giveaway: GiveawayState }>("POST", `/api/giveaway/${action}`, {}),
+  giveawayHistory: (id: number) => request<{ entries: GiveawayEntry[] }>("GET", `/api/giveaway/history/${id}`),
   removeGiveawayEntry: (login: string) =>
     request<{ giveaway: GiveawayState }>("DELETE", `/api/giveaway/entries/${encodeURIComponent(login)}`),
   discardSummary: (id: number) => request<{ summary: SummaryView }>("POST", `/api/summaries/${id}/discard`, {}),
