@@ -95,7 +95,9 @@ const iso = (time: number | null) => (time === null ? null : new Date(time).toIS
 function wholeNumber(raw: unknown, label: string, min: number, max: number, fallback: number): number {
   const value = raw === undefined || raw === null || raw === "" ? fallback : Number(raw);
   if (!Number.isInteger(value) || value < min || value > max) {
-    throw new ValidationError(`${label} muss eine ganze Zahl von ${min.toLocaleString("de-DE")} bis ${max.toLocaleString("de-DE")} sein.`);
+    throw new ValidationError(
+      `${label} muss eine ganze Zahl von ${min.toLocaleString("de-DE")} bis ${max.toLocaleString("de-DE")} sein.`
+    );
   }
   return value;
 }
@@ -120,12 +122,14 @@ function readRules(input: GiveawayInput): GiveawayRules {
     maxTickets: 1,
     followerOnly,
     minFollowMinutes: followerOnly
-      ? wholeNumber(input.minFollowDays, "Tage", 0, 1095, 0) * 1440 + wholeNumber(input.minFollowHours, "Stunden", 0, 23, 0) * 60
+      ? wholeNumber(input.minFollowDays, "Tage", 0, 1095, 0) * 1440 +
+        wholeNumber(input.minFollowHours, "Stunden", 0, 23, 0) * 60
       : 0,
     subOnly: input.subOnly === true,
     subMultiplier: wholeNumber(input.subMultiplier, "Der Sub-Bonus", 1, MAX_MULTIPLIER, 1),
   };
-  if (rules.minFollowMinutes > MAX_FOLLOW_MINUTES) throw new ValidationError("Die Mindestdauer darf höchstens 3 Jahre sein.");
+  if (rules.minFollowMinutes > MAX_FOLLOW_MINUTES)
+    throw new ValidationError("Die Mindestdauer darf höchstens 3 Jahre sein.");
 
   if (mode === "chat") {
     rules.keyword = String(input.keyword ?? "").trim();
@@ -152,7 +156,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
   private winner: { login: string; messages: { text: string; at: number }[] } | null = null;
   private history: GiveawayHistoryItem[] = [];
   private listener: RedemptionListener | null = null;
-  private redemptions: Promise<void> = Promise.resolve();
+  private queue: Promise<unknown> = Promise.resolve();
   private emitTimer: NodeJS.Timeout | null = null;
 
   constructor(
@@ -237,7 +241,43 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     };
   }
 
-  async open(input: GiveawayInput): Promise<void> {
+  open(input: GiveawayInput): Promise<void> {
+    return this.exclusive(() => this.openNow(input));
+  }
+
+  close(): Promise<void> {
+    return this.exclusive(() => this.closeNow());
+  }
+
+  reopen(): Promise<void> {
+    return this.exclusive(() => this.reopenNow());
+  }
+
+  draw(): Promise<void> {
+    return this.exclusive(() => this.drawNow());
+  }
+
+  remove(login: string): Promise<void> {
+    return this.exclusive(() => this.removeNow(login));
+  }
+
+  end(): Promise<void> {
+    return this.exclusive(() => this.endNow());
+  }
+
+  endIfActive(): Promise<void> {
+    return this.exclusive(async () => {
+      if (this.giveaway) await this.endNow();
+    });
+  }
+
+  private exclusive<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task);
+    this.queue = run.catch(() => undefined);
+    return run;
+  }
+
+  private async openNow(input: GiveawayInput): Promise<void> {
     if (this.giveaway) throw new ValidationError("Es läuft schon ein Giveaway. Beende es zuerst.");
     const rules = readRules(input);
 
@@ -250,7 +290,9 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     let rewardId: string | null = null;
     if (rules.mode === "points") {
       if (!(await hasPointsAccess(this.channel))) {
-        throw new ValidationError("Kanalpunkte sind für diesen Kanal noch nicht freigeschaltet. Der Streamer muss sie einmal erlauben.");
+        throw new ValidationError(
+          "Kanalpunkte sind für diesen Kanal noch nicht freigeschaltet. Der Streamer muss sie einmal erlauben."
+        );
       }
       try {
         rewardId = await createReward(this.channel, {
@@ -261,16 +303,25 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         if (/DUPLICATE/i.test(message)) {
-          throw new ValidationError(`Auf Twitch gibt es schon eine Belohnung „${rules.rewardTitle}“. Nimm einen anderen Namen.`);
+          throw new ValidationError(
+            `Auf Twitch gibt es schon eine Belohnung „${rules.rewardTitle}“. Nimm einen anderen Namen.`
+          );
         }
         if (err instanceof TwitchApiError && err.status === 403) {
-          throw new ValidationError("Twitch erlaubt keine Belohnungen für diesen Kanal. Kanalpunkte gibt es nur für Affiliates und Partner.");
+          throw new ValidationError(
+            "Twitch erlaubt keine Belohnungen für diesen Kanal. Kanalpunkte gibt es nur für Affiliates und Partner."
+          );
         }
         throw new ValidationError(`Twitch hat die Belohnung nicht angelegt: ${message}`);
       }
     }
 
-    this.giveaway = await giveawayStore.create(this.channel, { ...rules, rewardId });
+    try {
+      this.giveaway = await giveawayStore.create(this.channel, { ...rules, rewardId });
+    } catch (err) {
+      if (rewardId) await deleteReward(this.channel, rewardId).catch(() => undefined);
+      throw err;
+    }
     this.entries.clear();
     this.rejected.clear();
     this.winner = null;
@@ -279,7 +330,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     this.changed();
   }
 
-  async close(): Promise<void> {
+  private async closeNow(): Promise<void> {
     const g = this.require();
     if (g.status !== "open") return;
     await giveawayStore.setStatus(g.id, "closed");
@@ -289,7 +340,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     this.changed();
   }
 
-  async reopen(): Promise<void> {
+  private async reopenNow(): Promise<void> {
     const g = this.require();
     if (g.status !== "closed") return;
     await giveawayStore.setStatus(g.id, "open");
@@ -299,7 +350,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     this.changed();
   }
 
-  async draw(): Promise<void> {
+  private async drawNow(): Promise<void> {
     const g = this.require();
     const pool = [...this.entries.values()].filter((e) => e.wonAt === null);
 
@@ -312,7 +363,12 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
       if (g.followerOnly && !(await this.stillQualifies(g, candidate))) {
         await giveawayStore.removeEntry(g.id, candidate.login);
         this.entries.delete(candidate.login);
-        log("info", "giveaway", `${candidate.displayName} erfüllt die Follower-Bedingung nicht mehr und wurde entfernt`, this.channel);
+        log(
+          "info",
+          "giveaway",
+          `${candidate.displayName} erfüllt die Follower-Bedingung nicht mehr und wurde entfernt`,
+          this.channel
+        );
         continue;
       }
       await giveawayStore.markWinner(g.id, candidate.login);
@@ -327,7 +383,7 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     throw new ValidationError("Niemand mehr im Topf, der gewinnen kann.");
   }
 
-  async remove(login: string): Promise<void> {
+  private async removeNow(login: string): Promise<void> {
     const g = this.require();
     if (!this.entries.has(login)) return;
     await giveawayStore.removeEntry(g.id, login);
@@ -336,14 +392,19 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     this.changed();
   }
 
-  async end(): Promise<void> {
+  private async endNow(): Promise<void> {
     const g = this.require();
     await giveawayStore.setStatus(g.id, "ended");
     this.listener?.stop();
     this.listener = null;
     if (g.rewardId) {
       await deleteReward(this.channel, g.rewardId).catch((err) =>
-        log("warn", "giveaway", `Belohnung nicht gelöscht: ${err instanceof Error ? err.message : String(err)}`, this.channel)
+        log(
+          "warn",
+          "giveaway",
+          `Belohnung nicht gelöscht: ${err instanceof Error ? err.message : String(err)}`,
+          this.channel
+        )
       );
     }
     log("info", "giveaway", `Giveaway beendet: ${this.describe(g)}`, this.channel);
@@ -371,9 +432,12 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
   }
 
   private describe(g: Giveaway): string {
-    const parts = [g.mode === "points" ? `„${g.rewardTitle}“ für ${g.rewardCost} Kanalpunkte` : `„${g.keyword}“ im Chat`];
+    const parts = [
+      g.mode === "points" ? `„${g.rewardTitle}“ für ${g.rewardCost} Kanalpunkte` : `„${g.keyword}“ im Chat`,
+    ];
     if (g.mode === "points" && g.maxTickets > 1) parts.push(`bis ${g.maxTickets} Lose`);
-    if (g.followerOnly) parts.push(g.minFollowMinutes > 0 ? `Follower seit ${followAge(g.minFollowMinutes)}` : "nur Follower");
+    if (g.followerOnly)
+      parts.push(g.minFollowMinutes > 0 ? `Follower seit ${followAge(g.minFollowMinutes)}` : "nur Follower");
     if (g.subOnly) parts.push("nur Subs");
     if (g.subMultiplier > 1) parts.push(`Sub-Lose ×${g.subMultiplier}`);
     return parts.join(", ");
@@ -392,8 +456,13 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     this.listener?.stop();
     this.listener = new RedemptionListener(this.channel, rewardId);
     this.listener.on("redemption", (r) => {
-      this.redemptions = this.redemptions.then(() => this.redeem(r)).catch((err) =>
-        log("error", "giveaway", `Einlösung nicht verarbeitet: ${err instanceof Error ? err.message : String(err)}`, this.channel)
+      this.exclusive(() => this.redeem(r)).catch((err) =>
+        log(
+          "error",
+          "giveaway",
+          `Einlösung nicht verarbeitet: ${err instanceof Error ? err.message : String(err)}`,
+          this.channel
+        )
       );
     });
     this.listener.start();
@@ -401,7 +470,12 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
 
   private async pauseReward(rewardId: string, paused: boolean): Promise<void> {
     await setRewardPaused(this.channel, rewardId, paused).catch((err) =>
-      log("warn", "giveaway", `Belohnung nicht ${paused ? "pausiert" : "freigegeben"}: ${err instanceof Error ? err.message : String(err)}`, this.channel)
+      log(
+        "warn",
+        "giveaway",
+        `Belohnung nicht ${paused ? "pausiert" : "freigegeben"}: ${err instanceof Error ? err.message : String(err)}`,
+        this.channel
+      )
     );
   }
 
@@ -409,15 +483,22 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     try {
       await setRedemptionStatus(this.channel, r.rewardId, r.id, status);
     } catch (err) {
-      log("warn", "giveaway", `Einlösung von ${r.userName} nicht abgeschlossen: ${err instanceof Error ? err.message : String(err)}`, this.channel);
+      log(
+        "warn",
+        "giveaway",
+        `Einlösung von ${r.userName} nicht abgeschlossen: ${err instanceof Error ? err.message : String(err)}`,
+        this.channel
+      );
       return;
     }
-    if (status === "CANCELED") log("info", "giveaway", `${r.userName} bekommt die Punkte zurück: ${reason}`, this.channel);
+    if (status === "CANCELED")
+      log("info", "giveaway", `${r.userName} bekommt die Punkte zurück: ${reason}`, this.channel);
   }
 
   private async redeem(r: Redemption): Promise<void> {
     const g = this.giveaway;
-    if (!g || g.mode !== "points" || g.rewardId !== r.rewardId) return this.settle(r, "CANCELED", "kein laufendes Giveaway");
+    if (!g || g.mode !== "points" || g.rewardId !== r.rewardId)
+      return this.settle(r, "CANCELED", "kein laufendes Giveaway");
     if (g.status !== "open") return this.settle(r, "CANCELED", "Teilnahme ist geschlossen");
     if (r.userLogin === this.channel) return this.settle(r, "CANCELED", "der Streamer kann nicht mitmachen");
 
@@ -501,24 +582,30 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
         if (typeof result === "string") return reject(result);
         followedAt = result;
       }
-      if (this.giveaway?.id !== g.id || g.status !== "open") return;
-
-      const entry = {
-        login: msg.login,
-        userId: msg.userId,
-        displayName: msg.displayName || msg.login,
-        followedAt,
-        enteredAt: Date.now(),
-        tickets: 1,
-        subscriber: msg.isSubscriber,
-      };
-      if (await giveawayStore.addEntry(g.id, entry)) {
-        this.entries.set(entry.login, { ...entry, wonAt: null });
-        this.rejected.delete(entry.login);
-        this.changed();
-      }
+      await this.exclusive(async () => {
+        if (this.giveaway?.id !== g.id || g.status !== "open") return;
+        const entry = {
+          login: msg.login,
+          userId: msg.userId,
+          displayName: msg.displayName || msg.login,
+          followedAt,
+          enteredAt: Date.now(),
+          tickets: 1,
+          subscriber: msg.isSubscriber,
+        };
+        if (await giveawayStore.addEntry(g.id, entry)) {
+          this.entries.set(entry.login, { ...entry, wonAt: null });
+          this.rejected.delete(entry.login);
+          this.changed();
+        }
+      });
     } catch (err) {
-      log("warn", "giveaway", `Teilnahme von ${msg.displayName} nicht geprüft: ${err instanceof Error ? err.message : String(err)}`, this.channel);
+      log(
+        "warn",
+        "giveaway",
+        `Teilnahme von ${msg.displayName} nicht geprüft: ${err instanceof Error ? err.message : String(err)}`,
+        this.channel
+      );
     } finally {
       this.checking.delete(msg.login);
     }
@@ -528,7 +615,8 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     const followedAt = await getFollowedAt(this.channel, userId);
     if (followedAt === undefined) return "Follower-Prüfung nicht möglich";
     if (followedAt === null) return "folgt nicht";
-    if (Date.now() - followedAt < g.minFollowMinutes * 60_000) return `folgt noch nicht seit ${followAge(g.minFollowMinutes)}`;
+    if (Date.now() - followedAt < g.minFollowMinutes * 60_000)
+      return `folgt noch nicht seit ${followAge(g.minFollowMinutes)}`;
     return followedAt;
   }
 
@@ -537,7 +625,12 @@ export class GiveawayService extends EventEmitter<{ changed: [] }> {
     try {
       followedAt = await getFollowedAt(this.channel, entry.userId);
     } catch (err) {
-      log("warn", "giveaway", `Follower-Prüfung beim Ziehen fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`, this.channel);
+      log(
+        "warn",
+        "giveaway",
+        `Follower-Prüfung beim Ziehen fehlgeschlagen: ${err instanceof Error ? err.message : String(err)}`,
+        this.channel
+      );
       return true;
     }
     if (followedAt === undefined) {
