@@ -52,7 +52,11 @@ function addChannel() {
 }
 
 function removeChannel(channel: ManagedChannel) {
-  if (!confirm(`#${channel.login} entfernen? Der Bot verlässt den Kanal, Einstellungen und Statistik bleiben gespeichert.`)) {
+  if (
+    !confirm(
+      `#${channel.login} entfernen? Der Bot verlässt den Kanal und gibt die Twitch-Freigabe des Streamers zurück. Einstellungen, Mods und Statistik bleiben gespeichert.`
+    )
+  ) {
     return;
   }
   run(async () => {
@@ -108,14 +112,22 @@ onMounted(() => {
         <li v-for="c in channels" :key="c.login">
           <span>
             <b>{{ c.displayName }}</b>
-            <small>#{{ c.login }}<template v-if="c.access.length">, Mods: {{ c.access.join(", ") }}</template></small>
+            <small
+              >#{{ c.login }}<template v-if="c.access.length">, Mods: {{ c.access.join(", ") }}</template></small
+            >
           </span>
           <button type="button" class="btn btn-ghost" :disabled="busy" @click="removeChannel(c)">Entfernen</button>
         </li>
       </ul>
       <form class="add" @submit.prevent="addChannel">
         <label class="sr-only" for="channel-login">Twitch-Kanal</label>
-        <input id="channel-login" v-model="channelInput" placeholder="Twitch-Kanal" autocomplete="off" spellcheck="false" />
+        <input
+          id="channel-login"
+          v-model="channelInput"
+          placeholder="Twitch-Kanal"
+          autocomplete="off"
+          spellcheck="false"
+        />
         <button type="submit" class="btn btn-primary" :disabled="busy || !channelInput.trim()">Freischalten</button>
       </form>
     </div>

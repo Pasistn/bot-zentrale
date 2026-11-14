@@ -67,6 +67,7 @@ export const config = {
   sessionDays: optionalNumber("SESSION_DAYS", 7),
   dbPath,
   mediaDir: resolve(dirname(dbPath), "media"),
+  mediaQuotaMb: optionalNumber("MEDIA_QUOTA_MB", 300),
   databaseUrl: process.env.DATABASE_URL?.trim() || null,
   databaseCaPath: process.env.DATABASE_CA?.trim() ? resolve(rootDir, process.env.DATABASE_CA.trim()) : null,
   webDist: resolve(rootDir, "web/dist"),

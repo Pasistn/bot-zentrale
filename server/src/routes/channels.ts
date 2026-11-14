@@ -47,13 +47,17 @@ export async function channelRoutes(app: FastifyInstance, opts: { registry: Chan
     return { channels: channelList() };
   });
 
-  app.delete<{ Params: { login: string } }>("/api/channels/:login", { preHandler: requireOwner }, async (request, reply) => {
-    const login = normalizeLogin(request.params.login);
-    if (!channelStore.get(login)) return reply.code(404).send({ error: "Diesen Kanal gibt es nicht." });
-    await registry.remove(login);
-    log("info", "channels", `${request.user!.login} hat #${login} entfernt`);
-    return { channels: channelList() };
-  });
+  app.delete<{ Params: { login: string } }>(
+    "/api/channels/:login",
+    { preHandler: requireOwner },
+    async (request, reply) => {
+      const login = normalizeLogin(request.params.login);
+      if (!channelStore.get(login)) return reply.code(404).send({ error: "Diesen Kanal gibt es nicht." });
+      await registry.remove(login);
+      log("info", "channels", `${request.user!.login} hat #${login} entfernt`);
+      return { channels: channelList() };
+    }
+  );
 
   app.get("/api/access", { preHandler: requireAccessManager }, async (request) => ({
     logins: accessStore.list(request.channel),
@@ -74,6 +78,7 @@ export async function channelRoutes(app: FastifyInstance, opts: { registry: Chan
     async (request) => {
       const login = normalizeLogin(request.params.login);
       await accessStore.remove(request.channel, login);
+      registry.emit("accessRevoked", request.channel, login);
       log("info", "channels", `Zugriff für ${login} entzogen`, request.channel);
       return { logins: accessStore.list(request.channel) };
     }

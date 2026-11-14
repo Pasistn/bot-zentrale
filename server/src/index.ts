@@ -1,5 +1,6 @@
 import Fastify from "fastify";
 import fastifyCookie from "@fastify/cookie";
+import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import { existsSync } from "node:fs";
@@ -17,14 +18,58 @@ import { channelRoutes } from "./routes/channels.js";
 import { giveawayRoutes } from "./routes/giveaway.js";
 import { TwitchChat } from "./twitch/chat.js";
 
+const TWITCH_IMAGES = "https://static-cdn.jtvnw.net";
+
+const DASHBOARD_CSP = [
+  "default-src 'self'",
+  `img-src 'self' data: ${TWITCH_IMAGES}`,
+  "media-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+const OVERLAY_CSP = [
+  "default-src 'self'",
+  `img-src 'self' data: ${TWITCH_IMAGES}`,
+  "media-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'self'",
+].join("; ");
+
 async function main(): Promise<void> {
   await initDb((level, message) => log(level, "db", message));
 
   const chat = new TwitchChat();
   const registry = new ChannelRegistry(chat);
 
-  const app = Fastify({ logger: false, trustProxy: true, bodyLimit: 64 * 1024 });
+  const app = Fastify({ logger: false, trustProxy: "loopback", bodyLimit: 64 * 1024 });
 
+  app.addHook("onSend", async (request, reply) => {
+    const overlay = request.url.startsWith("/overlay");
+    reply.header("X-Content-Type-Options", "nosniff");
+    reply.header("Referrer-Policy", "strict-origin-when-cross-origin");
+    reply.header("X-Frame-Options", overlay ? "SAMEORIGIN" : "DENY");
+    reply.header("Content-Security-Policy", overlay ? OVERLAY_CSP : DASHBOARD_CSP);
+    if (config.secureCookies) reply.header("Strict-Transport-Security", "max-age=31536000");
+  });
+
+  await app.register(fastifyRateLimit, {
+    max: 600,
+    timeWindow: "1 minute",
+    errorResponseBuilder: () =>
+      Object.assign(new Error("Zu viele Anfragen. Bitte kurz warten und dann noch einmal versuchen."), {
+        statusCode: 429,
+      }),
+  });
   await app.register(fastifyCookie, { secret: config.sessionSecret });
   await app.register(fastifyWebsocket);
   await app.register(authRoutes);
@@ -39,22 +84,31 @@ async function main(): Promise<void> {
   if (existsSync(config.webDist)) {
     await app.register(fastifyStatic, { root: config.webDist, wildcard: false });
     app.setNotFoundHandler((request, reply) => {
-      const isApi = request.url.startsWith("/api") || request.url.startsWith("/auth") || request.url.startsWith("/ws") || request.url.startsWith("/overlay");
+      const isApi =
+        request.url.startsWith("/api") ||
+        request.url.startsWith("/auth") ||
+        request.url.startsWith("/ws") ||
+        request.url.startsWith("/overlay");
       if (request.method === "GET" && !isApi) return reply.sendFile("index.html");
       return reply.code(404).send({ error: "Nicht gefunden." });
     });
   }
 
   app.setErrorHandler((err, _request, reply) => {
-    log("error", "server", err.message);
-    const status = err.statusCode && err.statusCode < 500 ? err.statusCode : 500;
-    reply.code(status).send({ error: status === 500 ? "Interner Serverfehler." : err.message });
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { statusCode?: unknown }).statusCode;
+    const status = typeof code === "number" && code >= 400 && code < 500 ? code : 500;
+    if (status === 500) log("error", "server", message);
+    reply.code(status).send({ error: status === 500 ? "Interner Serverfehler." : message });
   });
 
-  const purgeTimer = setInterval(async () => {
-    const removed = await sessionStore.purgeExpired().catch(() => 0);
-    if (removed > 0) log("info", "auth", `${removed} abgelaufene Sitzung(en) entfernt`);
-  }, 60 * 60 * 1000);
+  const purgeTimer = setInterval(
+    async () => {
+      const removed = await sessionStore.purgeExpired().catch(() => 0);
+      if (removed > 0) log("info", "auth", `${removed} abgelaufene Sitzung(en) entfernt`);
+    },
+    60 * 60 * 1000
+  );
 
   await registry.startAll();
   await chat.start();

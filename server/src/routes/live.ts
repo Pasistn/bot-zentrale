@@ -7,23 +7,23 @@ import { getStatsOverview } from "../stream/stats.js";
 import { listSummaries, summaryEvents } from "../summaries.js";
 import type { TwitchChat } from "../twitch/chat.js";
 
-const CLOSE_CHANNEL_REMOVED = 4003;
+const CLOSE_ACCESS_ENDED = 4003;
 
 export async function liveRoutes(
   app: FastifyInstance,
   opts: { registry: ChannelRegistry; chat: TwitchChat }
 ): Promise<void> {
   const { registry, chat } = opts;
-  const clients = new Map<WebSocket, string>();
+  const clients = new Map<WebSocket, { channel: string; login: string }>();
 
   function broadcast(channel: string, message: unknown): void {
     const data = JSON.stringify(message);
-    for (const [socket, ch] of clients) {
-      if (ch === channel && socket.readyState === socket.OPEN) socket.send(data);
+    for (const [socket, client] of clients) {
+      if (client.channel === channel && socket.readyState === socket.OPEN) socket.send(data);
     }
   }
 
-  const watched = (channel: string) => [...clients.values()].includes(channel);
+  const watched = (channel: string) => [...clients.values()].some((c) => c.channel === channel);
 
   const onLog = (channel: string, entry: LogEntry) => broadcast(channel, { type: "log", entry });
 
@@ -63,12 +63,19 @@ export async function liveRoutes(
   };
 
   const onStatus = (connected: boolean) => {
-    for (const channel of new Set(clients.values())) broadcast(channel, { type: "twitch", twitch: { connected, channel } });
+    for (const channel of new Set([...clients.values()].map((c) => c.channel)))
+      broadcast(channel, { type: "twitch", twitch: { connected, channel } });
   };
 
   const onRemoved = (channel: string) => {
-    for (const [socket, ch] of clients) {
-      if (ch === channel) socket.close(CLOSE_CHANNEL_REMOVED, "Kanal entfernt");
+    for (const [socket, client] of clients) {
+      if (client.channel === channel) socket.close(CLOSE_ACCESS_ENDED, "Kanal entfernt");
+    }
+  };
+
+  const onAccessRevoked = (channel: string, login: string) => {
+    for (const [socket, client] of clients) {
+      if (client.channel === channel && client.login === login) socket.close(CLOSE_ACCESS_ENDED, "Zugriff entzogen");
     }
   };
 
@@ -76,6 +83,7 @@ export async function liveRoutes(
   registry.on("modules", onModules);
   registry.on("giveaway", onGiveaway);
   registry.on("removed", onRemoved);
+  registry.on("accessRevoked", onAccessRevoked);
   chat.on("status", onStatus);
   summaryEvents.on("changed", onSummaries);
 
@@ -92,6 +100,7 @@ export async function liveRoutes(
     registry.off("modules", onModules);
     registry.off("giveaway", onGiveaway);
     registry.off("removed", onRemoved);
+    registry.off("accessRevoked", onAccessRevoked);
     chat.off("status", onStatus);
     summaryEvents.off("changed", onSummaries);
     for (const socket of clients.keys()) socket.close(1001, "Server wird beendet");
@@ -117,7 +126,7 @@ export async function liveRoutes(
     },
     async (socket, request) => {
       const channel = request.channel;
-      clients.set(socket, channel);
+      clients.set(socket, { channel, login: request.user!.login });
       socket.on("close", () => clients.delete(socket));
       socket.on("error", () => clients.delete(socket));
 

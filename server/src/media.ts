@@ -14,7 +14,8 @@ interface MediaType {
   matches: (b: Buffer) => boolean;
 }
 
-const ascii = (b: Buffer, start: number, text: string) => b.subarray(start, start + text.length).toString("latin1") === text;
+const ascii = (b: Buffer, start: number, text: string) =>
+  b.subarray(start, start + text.length).toString("latin1") === text;
 
 const TYPES: MediaType[] = [
   { ext: "png", kind: "image", mime: "image/png", matches: (b) => b[0] === 0x89 && ascii(b, 1, "PNG") },
@@ -23,7 +24,12 @@ const TYPES: MediaType[] = [
   { ext: "webp", kind: "image", mime: "image/webp", matches: (b) => ascii(b, 0, "RIFF") && ascii(b, 8, "WEBP") },
   { ext: "webm", kind: "video", mime: "video/webm", matches: (b) => b.readUInt32BE(0) === 0x1a45dfa3 },
   { ext: "mp4", kind: "video", mime: "video/mp4", matches: (b) => ascii(b, 4, "ftyp") },
-  { ext: "mp3", kind: "audio", mime: "audio/mpeg", matches: (b) => ascii(b, 0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) },
+  {
+    ext: "mp3",
+    kind: "audio",
+    mime: "audio/mpeg",
+    matches: (b) => ascii(b, 0, "ID3") || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0),
+  },
   { ext: "ogg", kind: "audio", mime: "audio/ogg", matches: (b) => ascii(b, 0, "OggS") },
   { ext: "wav", kind: "audio", mime: "audio/wav", matches: (b) => ascii(b, 0, "RIFF") && ascii(b, 8, "WAVE") },
 ];
@@ -104,6 +110,13 @@ export async function saveMedia(channel: string, originalName: string, data: Buf
   const type = data.length >= 12 ? TYPES.find((t) => t.matches(data)) : undefined;
   if (!type) {
     throw new MediaError("Dieses Format geht nicht. Erlaubt: PNG, JPG, GIF, WebP, WebM, MP4, MP3, OGG, WAV.");
+  }
+
+  const used = (await listMedia(channel)).reduce((sum, m) => sum + m.size, 0);
+  if (used + data.length > config.mediaQuotaMb * 1024 * 1024) {
+    throw new MediaError(
+      `Der Speicher für diesen Kanal ist voll (${config.mediaQuotaMb} MB). Lösche zuerst Dateien, die du nicht mehr brauchst.`
+    );
   }
 
   const name = slug(originalName);

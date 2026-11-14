@@ -1,7 +1,16 @@
 import { onBeforeUnmount, ref } from "vue";
-import type { GiveawayState, LiveMessage, LogEntry, ModuleView, StatsOverview, SummaryView, TwitchStatus } from "../types";
+import type {
+  GiveawayState,
+  LiveMessage,
+  LogEntry,
+  ModuleView,
+  StatsOverview,
+  SummaryView,
+  TwitchStatus,
+} from "../types";
 
 const MAX_LOGS = 200;
+const ACCESS_ENDED = 4003;
 
 export function useLive(onUnauthorized: () => void) {
   const modules = ref<ModuleView[]>([]);
@@ -84,10 +93,14 @@ export function useLive(onUnauthorized: () => void) {
       }
     };
 
-    socket.onclose = async () => {
+    socket.onclose = async (event) => {
       connected.value = false;
       socket = null;
       if (closedByUs) return;
+      if (event.code === ACCESS_ENDED) {
+        location.reload();
+        return;
+      }
       if (!(await checkSession())) return;
       retryTimer = window.setTimeout(connect, retryDelay);
       retryDelay = Math.min(retryDelay * 2, 15000);

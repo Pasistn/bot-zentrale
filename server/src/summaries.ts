@@ -67,7 +67,11 @@ export interface SummaryOptions {
 }
 
 export function summaryOptions(settings: Record<string, unknown>): SummaryOptions {
-  return { raids: settings.showRaids !== false, gifts: settings.showGifts !== false, chat: settings.showChat !== false };
+  return {
+    raids: settings.showRaids !== false,
+    gifts: settings.showGifts !== false,
+    chat: settings.showChat !== false,
+  };
 }
 
 export function summaryText(v: Omit<SummaryView, "text">, options: SummaryOptions): string {
@@ -79,7 +83,7 @@ export function summaryText(v: Omit<SummaryView, "text">, options: SummaryOption
     parts.push(`wurde ${v.raids.count}× geraidet mit insgesamt ${viewers}`);
   }
 
-  if(options.chat && v.chatMessages > 0) {
+  if (options.chat && v.chatMessages > 0) {
     const n = v.chatMessages.toLocaleString("de-DE");
     parts.push(`hatte ${n} Chatnachricht${v.chatMessages === 1 ? "" : "en"}`);
   }
@@ -134,7 +138,10 @@ async function toView(session: StreamSession): Promise<SummaryView> {
     postedAt: session.postedAt ? new Date(session.postedAt).toISOString() : null,
     postError: session.postError,
   };
-  return { ...base, text: summaryText(base, summaryOptions(moduleStore.get(session.channel, "stream-summary").settings)) };
+  return {
+    ...base,
+    text: summaryText(base, summaryOptions(moduleStore.get(session.channel, "stream-summary").settings)),
+  };
 }
 
 export async function listSummaries(channel: string): Promise<SummaryView[]> {
@@ -152,11 +159,11 @@ function topLines(entries: SummaryEntry[], unit: (amount: number) => string): st
   return lines.join("\n");
 }
 
-let placeholderImage: Uint8Array | null = null;
+let placeholderImage: Uint8Array<ArrayBuffer> | null = null;
 
 function loadPlaceholder(): WebhookFile | null {
   try {
-    placeholderImage ??= readFileSync(CLIP_PLACEHOLDER_PATH);
+    placeholderImage ??= new Uint8Array(readFileSync(CLIP_PLACEHOLDER_PATH));
   } catch {
     log("warn", "stream-summary", `Platzhalterbild fehlt: ${CLIP_PLACEHOLDER_PATH}`);
     return null;
@@ -267,7 +274,8 @@ const posting = new Set<number>();
 export async function postSummary(channel: string, id: number, settings: SettingsValues): Promise<SummaryView> {
   const session = await streamSessionStore.get(channel, id);
   if (!session) throw new NotFoundError("Diese Zusammenfassung gibt es nicht.");
-  if (session.status === "live") throw new ValidationError("Der Stream läuft noch. Die Zusammenfassung ist erst nach dem Stream fertig.");
+  if (session.status === "live")
+    throw new ValidationError("Der Stream läuft noch. Die Zusammenfassung ist erst nach dem Stream fertig.");
   if (session.status === "posted") throw new ValidationError("Diese Zusammenfassung wurde schon gepostet.");
   if (posting.has(id)) throw new ValidationError("Die Zusammenfassung wird gerade gepostet.");
 

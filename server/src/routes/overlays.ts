@@ -104,21 +104,22 @@ export async function overlayRoutes(app: FastifyInstance, opts: { registry: Chan
 
   app.get<{ Params: { file: string } }>("/overlay-assets/:file", async (request, reply) => {
     const match = /^[a-z0-9-]+\.(png|jpg|gif|webp)$/.exec(request.params.file);
-    if (!match) return reply.code(404).send({error : "Datei nicht gefunden."});
+    if (!match) return reply.code(404).send({ error: "Datei nicht gefunden." });
     const types: Record<string, string> = {
       png: "image/png",
       jpg: "image/jpeg",
       gif: "image/gif",
       webp: "image/webp",
     };
-    const data = await readFile(resolve(OVERLAY_DIR, request.params.file));
-    if (!data) return reply.code(404).send({error : "Datei nicht gefunden."});
+    const data = await readFile(resolve(OVERLAY_DIR, request.params.file)).catch(() => null);
+    if (!data) return reply.code(404).send({ error: "Datei nicht gefunden." });
     return reply.type(types[match[1]]).header("Cache-Control", "public, max-age=3600").send(data);
   });
 
   app.get<{ Params: { id: string }; Querystring: { token?: string } }>("/overlay/:id", async (request, reply) => {
     const { id } = request.params;
-    if (!isOverlayId(id)) return reply.code(404).type("text/plain; charset=utf-8").send("Dieses Overlay gibt es nicht.");
+    if (!isOverlayId(id))
+      return reply.code(404).type("text/plain; charset=utf-8").send("Dieses Overlay gibt es nicht.");
     if (!channelForToken(request.query.token)) {
       return reply
         .code(403)

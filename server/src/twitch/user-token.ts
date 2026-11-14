@@ -42,7 +42,36 @@ export async function keepLoginToken(login: string, userId: string, tokens: Logi
   return true;
 }
 
-async function refresh(token: TwitchToken): Promise<TwitchToken | null> {
+export async function revokeToken(accessToken: string): Promise<void> {
+  await fetch("https://id.twitch.tv/oauth2/revoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: config.twitchClientId, token: accessToken }),
+  }).catch(() => undefined);
+}
+
+export async function forgetStreamerToken(channel: string): Promise<void> {
+  const token = await twitchTokenStore.get(channel);
+  if (!token) return;
+  await twitchTokenStore.delete(channel);
+  await revokeToken(token.refreshToken);
+}
+
+const refreshing = new Map<string, Promise<TwitchToken | null>>();
+
+function refresh(token: TwitchToken): Promise<TwitchToken | null> {
+  const running = refreshing.get(token.login);
+  if (running) return running;
+  const task = requestRefresh(token).finally(() => refreshing.delete(token.login));
+  refreshing.set(token.login, task);
+  return task;
+}
+
+async function requestRefresh(token: TwitchToken): Promise<TwitchToken | null> {
+  const stored = await twitchTokenStore.get(token.login);
+  if (!stored) return null;
+  if (stored.accessToken !== token.accessToken && stored.expiresAt > Date.now() + 60_000) return stored;
+
   const res = await fetch("https://id.twitch.tv/oauth2/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -50,21 +79,28 @@ async function refresh(token: TwitchToken): Promise<TwitchToken | null> {
       client_id: config.twitchClientId,
       client_secret: config.twitchClientSecret,
       grant_type: "refresh_token",
-      refresh_token: token.refreshToken,
+      refresh_token: stored.refreshToken,
     }),
   });
   if (res.status === 400 || res.status === 401) {
+    const latest = await twitchTokenStore.get(token.login);
+    if (latest && latest.refreshToken !== stored.refreshToken) return latest;
     await twitchTokenStore.delete(token.login);
     return null;
   }
   if (!res.ok) throw new Error(`Twitch-Token konnte nicht erneuert werden (${res.status}).`);
-  const data = (await res.json()) as { access_token: string; refresh_token: string; expires_in: number; scope?: string[] };
+  const data = (await res.json()) as {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+    scope?: string[];
+  };
   const next: TwitchToken = {
-    ...token,
+    ...stored,
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: Date.now() + data.expires_in * 1000,
-    scopes: data.scope ?? token.scopes,
+    scopes: data.scope ?? stored.scopes,
   };
   await twitchTokenStore.save(next);
   return next;
@@ -97,7 +133,10 @@ interface StreamerRequest {
   accept?: number[];
 }
 
-async function streamerRequest<T>(channel: string, request: StreamerRequest): Promise<{ status: number; data: T | null } | null> {
+async function streamerRequest<T>(
+  channel: string,
+  request: StreamerRequest
+): Promise<{ status: number; data: T | null } | null> {
   let token = await twitchTokenStore.get(channel);
   if (!token) return null;
 
@@ -144,7 +183,10 @@ interface FollowersResponse {
 }
 
 export async function getFollowerCount(channel: string): Promise<number | null> {
-  const result = await streamerRequest<FollowersResponse>(channel, { path: "channels/followers", params: { first: "1" } });
+  const result = await streamerRequest<FollowersResponse>(channel, {
+    path: "channels/followers",
+    params: { first: "1" },
+  });
   return result?.data?.total ?? null;
 }
 
@@ -168,7 +210,10 @@ export async function isSubscriber(channel: string, userId: string): Promise<boo
   return result.status === 200 && (result.data?.data.length ?? 0) > 0;
 }
 
-export async function createReward(channel: string, input: { title: string; cost: number; prompt: string }): Promise<string> {
+export async function createReward(
+  channel: string,
+  input: { title: string; cost: number; prompt: string }
+): Promise<string> {
   const result = await streamerRequest<{ data: { id: string }[] }>(channel, {
     method: "POST",
     path: "channel_points/custom_rewards",

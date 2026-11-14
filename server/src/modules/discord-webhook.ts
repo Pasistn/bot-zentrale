@@ -7,7 +7,7 @@ function sleep(ms: number): Promise<void> {
 export const DISCORD_WEBHOOK_PATTERN = /^https:\/\/(?:\w+\.)?discord(?:app)?\.com\/api\/webhooks\/\d+\/[\w-]+$/;
 
 export function escapeMarkdown(text: string): string {
-  return text.replace(/([\\_*~`|>#\[\]()])/g, "\\$1");
+  return text.replace(/([\\_*~`|>#[\]()])/g, "\\$1");
 }
 
 export function discordColor(hex: unknown): number {
@@ -37,11 +37,14 @@ export function createPostQueue(delayMs = 1000) {
 
 export interface WebhookFile {
   name: string;
-  data: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
   contentType: string;
 }
 
-function buildBody(payload: unknown, files: WebhookFile[]): { body: string | FormData; headers?: Record<string, string> } {
+function buildBody(
+  payload: unknown,
+  files: WebhookFile[]
+): { body: string | FormData; headers?: Record<string, string> } {
   if (files.length === 0) {
     return { body: JSON.stringify(payload), headers: { "Content-Type": "application/json" } };
   }

@@ -3,7 +3,16 @@ import { stat } from "node:fs/promises";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { isAllowedOrigin, requireAuth, sessionFromRequest } from "../auth.js";
 import { log } from "../logger.js";
-import { deleteMedia, isMediaFile, listMedia, MAX_MEDIA_BYTES, MediaError, mediaMime, mediaPath, saveMedia } from "../media.js";
+import {
+  deleteMedia,
+  isMediaFile,
+  listMedia,
+  MAX_MEDIA_BYTES,
+  MediaError,
+  mediaMime,
+  mediaPath,
+  saveMedia,
+} from "../media.js";
 import { channelForToken } from "./overlays.js";
 
 async function requireOrigin(request: FastifyRequest, reply: FastifyReply): Promise<void> {
@@ -19,7 +28,11 @@ export async function mediaRoutes(app: FastifyInstance): Promise<void> {
 
   app.post<{ Querystring: { name?: string } }>(
     "/api/media",
-    { preHandler: [requireAuth, requireOrigin], bodyLimit: MAX_MEDIA_BYTES + 1024 },
+    {
+      preHandler: [requireAuth, requireOrigin],
+      bodyLimit: MAX_MEDIA_BYTES + 1024,
+      config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    },
     async (request, reply) => {
       if (!Buffer.isBuffer(request.body)) return reply.code(400).send({ error: "Keine Datei erhalten." });
       try {

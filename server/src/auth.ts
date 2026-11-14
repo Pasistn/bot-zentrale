@@ -4,7 +4,7 @@ import { config } from "./config.js";
 import { canAccess, canManageAccess, channelsFor, defaultChannelFor, isOwner } from "./channels.js";
 import { channelStore, sessionStore, type Session, type SessionUser } from "./db.js";
 import { log } from "./logger.js";
-import { keepLoginToken, LOGIN_SCOPES, STREAMER_SCOPES, type LoginTokens } from "./twitch/user-token.js";
+import { keepLoginToken, LOGIN_SCOPES, revokeToken, STREAMER_SCOPES, type LoginTokens } from "./twitch/user-token.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -14,6 +14,7 @@ declare module "fastify" {
 }
 
 const SESSION_COOKIE = "bz_session";
+const AUTH_LIMIT = { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } };
 const STATE_COOKIE = "bz_oauth_state";
 
 function cookieBase() {
@@ -122,19 +123,11 @@ async function fetchTwitchUser(accessToken: string): Promise<SessionUser> {
   };
 }
 
-async function revokeToken(accessToken: string): Promise<void> {
-  await fetch("https://id.twitch.tv/oauth2/revoke", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ client_id: config.twitchClientId, token: accessToken }),
-  }).catch(() => undefined);
-}
-
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.decorateRequest("user", null);
   app.decorateRequest("channel", "");
 
-  app.get<{ Querystring: { streamer?: string } }>("/auth/login", async (request, reply) => {
+  app.get<{ Querystring: { streamer?: string } }>("/auth/login", AUTH_LIMIT, async (request, reply) => {
     const state = randomBytes(24).toString("hex");
     const streamer = request.query.streamer === "1";
     reply.setCookie(STATE_COOKIE, `${state}.${streamer ? 1 : 0}`, { ...cookieBase(), path: "/auth", maxAge: 600 });
@@ -151,6 +144,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
 
   app.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
     "/auth/callback",
+    AUTH_LIMIT,
     async (request, reply) => {
       const { code, state, error } = request.query;
       const rawState = request.cookies[STATE_COOKIE];
@@ -159,7 +153,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       if (error) return redirectWithError(reply, "denied");
 
       const storedState = rawState ? request.unsignCookie(rawState) : null;
-      const [expectedState, streamerFlag] = (storedState?.valid ? storedState.value ?? "" : "").split(".");
+      const [expectedState, streamerFlag] = (storedState?.valid ? (storedState.value ?? "") : "").split(".");
       if (!code || !state || !expectedState || expectedState !== state) {
         log("warn", "auth", "Login abgelehnt: ungültiger oder abgelaufener State");
         return redirectWithError(reply, "state");
@@ -225,7 +219,8 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { channel?: unknown } }>("/api/me/channel", { preHandler: requireAuth }, async (request, reply) => {
     if (!isAllowedOrigin(request)) return reply.code(403).send({ error: "Ungültige Herkunft." });
     const channel = String(request.body?.channel ?? "");
-    if (!canAccess(request.user!.login, channel)) return reply.code(403).send({ error: "Kein Zugriff auf diesen Kanal." });
+    if (!canAccess(request.user!.login, channel))
+      return reply.code(403).send({ error: "Kein Zugriff auf diesen Kanal." });
     await sessionStore.setChannel(sessionId(request)!, channel);
     return { channel };
   });

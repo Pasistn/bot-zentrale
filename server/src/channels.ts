@@ -10,13 +10,18 @@ import { clearOverlayStates } from "./overlays/bus.js";
 import { StreamTracker } from "./stream/tracker.js";
 import type { TwitchChat } from "./twitch/chat.js";
 import type { TwitchHub } from "./twitch/hub.js";
+import { forgetStreamerToken } from "./twitch/user-token.js";
 
 const KEEP_EVENTS_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const LOGIN_PATTERN = /^[a-z0-9_]{3,25}$/;
 
 export function normalizeLogin(raw: unknown): string {
-  return String(raw ?? "").trim().toLowerCase().replace(/^[@#]/, "").replace(/^https?:\/\/(www\.)?twitch\.tv\//, "");
+  return String(raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^[@#]/, "")
+    .replace(/^https?:\/\/(www\.)?twitch\.tv\//, "");
 }
 
 export function isOwner(login: string): boolean {
@@ -54,6 +59,7 @@ export class ChannelRegistry extends EventEmitter<{
   modules: [channel: string];
   giveaway: [channel: string];
   removed: [channel: string];
+  accessRevoked: [channel: string, login: string];
 }> {
   private readonly runtimes = new Map<string, ChannelRuntime>();
 
@@ -88,7 +94,13 @@ export class ChannelRegistry extends EventEmitter<{
   }
 
   async remove(login: string): Promise<void> {
+    await this.get(login)
+      ?.giveaway.endIfActive()
+      .catch((err) =>
+        log("warn", "giveaway", `Giveaway nicht beendet: ${err instanceof Error ? err.message : String(err)}`, login)
+      );
     await this.stop(login);
+    await forgetStreamerToken(login);
     await channelStore.remove(login);
     this.emit("removed", login);
   }
