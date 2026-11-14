@@ -114,7 +114,7 @@ export function parseGiftSub(command: string, tags: Tags): ParsedGift | null {
 
   const login = tagString(tags, "login")?.toLowerCase() ?? null;
   const anonymous = msgId.startsWith("anon") || login === null || login === ANONYMOUS_GIFTER;
-  const amount = community ? tagNumber(tags, "msg-param-mass-gift-count") ?? 1 : 1;
+  const amount = community ? (tagNumber(tags, "msg-param-mass-gift-count") ?? 1) : 1;
   const senderTotal = tagNumber(tags, "msg-param-sender-count");
 
   return {
@@ -122,7 +122,7 @@ export function parseGiftSub(command: string, tags: Tags): ParsedGift | null {
     communityGiftId: single ? tagString(tags, "msg-param-community-gift-id") : null,
     gift: {
       gifterLogin: anonymous ? null : login,
-      gifterName: anonymous ? "Anonym" : tagString(tags, "display-name") ?? login ?? "Unbekannt",
+      gifterName: anonymous ? "Anonym" : (tagString(tags, "display-name") ?? login ?? "Unbekannt"),
       amount,
       tier: parseTier(tagString(tags, "msg-param-sub-plan")),
       recipientName: single ? tagString(tags, "msg-param-recipient-display-name") : null,

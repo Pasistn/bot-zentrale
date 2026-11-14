@@ -71,7 +71,12 @@ export class StreamTracker {
       .add(this.channel, event)
       .then(() => summaryEvents.emit("changed", this.channel))
       .catch((err) =>
-        log("error", "stream", `Ereignis nicht gespeichert: ${err instanceof Error ? err.message : String(err)}`, this.channel)
+        log(
+          "error",
+          "stream",
+          `Ereignis nicht gespeichert: ${err instanceof Error ? err.message : String(err)}`,
+          this.channel
+        )
       );
   }
 
@@ -91,7 +96,8 @@ export class StreamTracker {
       return count;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message !== this.lastFollowerError) log("warn", "stream", `Follower-Zahl nicht abrufbar: ${message}`, this.channel);
+      if (message !== this.lastFollowerError)
+        log("warn", "stream", `Follower-Zahl nicht abrufbar: ${message}`, this.channel);
       this.lastFollowerError = message;
       return null;
     }
@@ -128,7 +134,8 @@ export class StreamTracker {
         const followers = await this.followers();
         const sameStream = current && (current.streamId === stream.id || now - current.lastSeenAt < OFFLINE_GRACE_MS);
         if (current && sameStream) {
-          if (current.streamId !== stream.id) log("info", "stream", "Stream nach kurzer Unterbrechung fortgesetzt", this.channel);
+          if (current.streamId !== stream.id)
+            log("info", "stream", "Stream nach kurzer Unterbrechung fortgesetzt", this.channel);
           await streamSessionStore.seen(current, {
             streamId: stream.id,
             title: stream.title,
@@ -160,7 +167,8 @@ export class StreamTracker {
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      if (message !== this.lastPollError) log("warn", "stream", `Stream-Status nicht abrufbar: ${message}`, this.channel);
+      if (message !== this.lastPollError)
+        log("warn", "stream", `Stream-Status nicht abrufbar: ${message}`, this.channel);
       this.lastPollError = message;
     } finally {
       this.polling = false;

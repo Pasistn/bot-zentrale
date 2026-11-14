@@ -85,7 +85,8 @@ export function createWatchStreakAlertModule(): BotModule {
         type: "media",
         accept: "image",
         default: "",
-        description: "PNG, JPG, GIF (auch animiert), WebP oder ein kurzes Video (WebM, MP4). Ersetzt Profilbild und Flamme.",
+        description:
+          "PNG, JPG, GIF (auch animiert), WebP oder ein kurzes Video (WebM, MP4). Ersetzt Profilbild und Flamme.",
       },
       {
         key: "background",

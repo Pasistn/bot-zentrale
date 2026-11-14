@@ -3,7 +3,10 @@ import tmi from "tmi.js";
 import { log } from "../logger.js";
 import { TwitchHub, type ChatUserstate } from "./hub.js";
 
-const channelName = (raw: unknown) => String(raw ?? "").replace(/^#/, "").toLowerCase();
+const channelName = (raw: unknown) =>
+  String(raw ?? "")
+    .replace(/^#/, "")
+    .toLowerCase();
 
 export class TwitchChat extends EventEmitter<{ status: [boolean] }> {
   private readonly client: tmi.Client;
@@ -57,7 +60,9 @@ export class TwitchChat extends EventEmitter<{ status: [boolean] }> {
     if (!joined.includes(`#${channel}`)) joined.push(`#${channel}`);
     this.client.getOptions().channels = joined;
     if (this.isConnected) {
-      this.client.join(channel).catch((err) => log("warn", "twitch", `Beitritt fehlgeschlagen: ${String(err)}`, channel));
+      this.client
+        .join(channel)
+        .catch((err) => log("warn", "twitch", `Beitritt fehlgeschlagen: ${String(err)}`, channel));
     }
     return hub;
   }

@@ -21,7 +21,9 @@ const missing = computed(() => props.modelValue !== "" && !selected.value && med
 const fileTypes = computed(() =>
   props.accept === "audio" ? ".mp3,.ogg,.wav,audio/*" : ".png,.jpg,.jpeg,.gif,.webp,.webm,.mp4,image/*,video/*"
 );
-const previewUrl = computed(() => (selected.value ? `/overlay-media/${encodeURIComponent(selected.value.file)}` : null));
+const previewUrl = computed(() =>
+  selected.value ? `/overlay-media/${encodeURIComponent(selected.value.file)}` : null
+);
 
 async function load() {
   try {
@@ -57,7 +59,8 @@ async function upload(event: Event) {
 
 async function remove() {
   if (!selected.value) return;
-  if (!confirm(`„${selected.value.name}“ endgültig löschen? Alerts, die sie nutzen, fallen auf den Standard zurück.`)) return;
+  if (!confirm(`„${selected.value.name}“ endgültig löschen? Alerts, die sie nutzen, fallen auf den Standard zurück.`))
+    return;
   busy.value = true;
   error.value = null;
   try {
@@ -78,7 +81,11 @@ const size = (bytes: number) =>
 <template>
   <div class="picker">
     <div class="row">
-      <select :id="id" :value="modelValue" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
+      <select
+        :id="id"
+        :value="modelValue"
+        @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)"
+      >
         <option value="">Keine (Standard)</option>
         <option v-for="m in fitting" :key="m.file" :value="m.file">{{ m.name }} · {{ size(m.size) }}</option>
         <option v-if="missing" :value="modelValue">Datei fehlt</option>

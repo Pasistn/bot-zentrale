@@ -120,7 +120,8 @@ async function run(summary: SummaryView, action: "post" | "discard") {
         <header class="card-head">
           <span class="badge">{{ statusLabels[s.status] }}</span>
           <span class="when">
-            <time :datetime="s.startedAt">{{ date(s.startedAt) }}</time>, {{ duration(s.durationMinutes) }}
+            <time :datetime="s.startedAt">{{ date(s.startedAt) }}</time
+            >, {{ duration(s.durationMinutes) }}
           </span>
         </header>
 
@@ -190,7 +191,12 @@ async function run(summary: SummaryView, action: "post" | "discard") {
           </button>
         </div>
 
-        <p v-if="notice && notice.id === s.id" class="notice" :class="notice.kind" :role="notice.kind === 'error' ? 'alert' : 'status'">
+        <p
+          v-if="notice && notice.id === s.id"
+          class="notice"
+          :class="notice.kind"
+          :role="notice.kind === 'error' ? 'alert' : 'status'"
+        >
           {{ notice.text }}
         </p>
       </article>

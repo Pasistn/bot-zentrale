@@ -13,7 +13,8 @@ const selected = computed<StreamStats | undefined>(
 watch(
   () => props.stats.streams.map((s) => s.id).join(","),
   () => {
-    if (selectedId.value !== null && !props.stats.streams.some((s) => s.id === selectedId.value)) selectedId.value = null;
+    if (selectedId.value !== null && !props.stats.streams.some((s) => s.id === selectedId.value))
+      selectedId.value = null;
   }
 );
 
@@ -66,7 +67,8 @@ const secondary = computed(() => {
         <h1 id="overview-title">{{ selected?.live ? "Aktueller Stream" : "Letzter Stream" }}</h1>
         <p v-if="selected" class="intro">
           <span v-if="selected.live" class="on-air">Live</span>
-          {{ date(selected.startedAt) }}<template v-if="selected.games.length">, {{ selected.games.join(", ") }}</template>
+          {{ date(selected.startedAt)
+          }}<template v-if="selected.games.length">, {{ selected.games.join(", ") }}</template>
         </p>
       </div>
       <label v-if="stats.streams.length > 1" class="picker">

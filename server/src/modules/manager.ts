@@ -263,7 +263,12 @@ export class ModuleManager extends EventEmitter<{ changed: [] }> {
           try {
             handler(...args);
           } catch (err) {
-            writeLog("error", mod.id, `Fehler bei „${event}“: ${err instanceof Error ? err.message : String(err)}`, channel);
+            writeLog(
+              "error",
+              mod.id,
+              `Fehler bei „${event}“: ${err instanceof Error ? err.message : String(err)}`,
+              channel
+            );
           }
         };
         hub.on(event, safeHandler as never);

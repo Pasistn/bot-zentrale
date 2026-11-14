@@ -116,7 +116,7 @@ export function createTopChatterModule(channel: string): BotModule {
         login,
         displayName: entry.displayName,
         count: entry.count,
-        avatarUrl: settings.showAvatar === true ? avatars.get(login) ?? null : null,
+        avatarUrl: settings.showAvatar === true ? (avatars.get(login) ?? null) : null,
       }));
   }
 

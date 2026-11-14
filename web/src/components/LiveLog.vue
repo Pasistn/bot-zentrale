@@ -8,9 +8,7 @@ const list = ref<HTMLElement | null>(null);
 const onlyProblems = ref(false);
 const stickToBottom = ref(true);
 
-const visible = computed(() =>
-  onlyProblems.value ? props.logs.filter((l) => l.level !== "info") : props.logs
-);
+const visible = computed(() => (onlyProblems.value ? props.logs.filter((l) => l.level !== "info") : props.logs));
 
 function time(iso: string) {
   return new Date(iso).toLocaleTimeString("de-DE");

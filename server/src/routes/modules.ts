@@ -79,7 +79,10 @@ export async function moduleRoutes(
     "/api/modules/:id/actions/:actionId",
     async (request, reply) => {
       try {
-        const message = await runtimeFor(registry, request).manager.runAction(request.params.id, request.params.actionId);
+        const message = await runtimeFor(registry, request).manager.runAction(
+          request.params.id,
+          request.params.actionId
+        );
         return { message };
       } catch (err) {
         return handleError(reply, err);

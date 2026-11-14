@@ -1,7 +1,20 @@
-import type { GiveawayEntry, GiveawayInput, GiveawayState, ManagedChannel, MediaFile, Me, ModuleView, SettingValue, SummaryView } from "./types";
+import type {
+  GiveawayEntry,
+  GiveawayInput,
+  GiveawayState,
+  ManagedChannel,
+  MediaFile,
+  Me,
+  ModuleView,
+  SettingValue,
+  SummaryView,
+} from "./types";
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(
+    message: string,
+    public readonly status: number
+  ) {
     super(message);
   }
 }
@@ -53,12 +66,12 @@ export const api = {
       body: file,
     });
     const data = (await res.json().catch(() => ({}))) as { error?: string; media?: MediaFile };
-    if (!res.ok || !data.media) throw new ApiError(data.error ?? `Hochladen fehlgeschlagen (${res.status}).`, res.status);
+    if (!res.ok || !data.media)
+      throw new ApiError(data.error ?? `Hochladen fehlgeschlagen (${res.status}).`, res.status);
     return { media: data.media };
   },
   renewOverlayToken: () => request<{ message: string }>("POST", "/api/overlays/renew-token", {}),
-  startGiveaway: (input: GiveawayInput) =>
-    request<{ giveaway: GiveawayState }>("POST", "/api/giveaway", input),
+  startGiveaway: (input: GiveawayInput) => request<{ giveaway: GiveawayState }>("POST", "/api/giveaway", input),
   giveawayAction: (action: "close" | "reopen" | "draw" | "end") =>
     request<{ giveaway: GiveawayState }>("POST", `/api/giveaway/${action}`, {}),
   giveawayHistory: (id: number) => request<{ entries: GiveawayEntry[] }>("GET", `/api/giveaway/history/${id}`),

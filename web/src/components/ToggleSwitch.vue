@@ -28,7 +28,9 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
   background: var(--field);
   padding: 0;
   flex-shrink: 0;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .switch.on {
@@ -49,7 +51,9 @@ defineEmits<{ "update:modelValue": [value: boolean] }>();
   height: 1.15rem;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: transform 0.15s, background 0.15s;
+  transition:
+    transform 0.15s,
+    background 0.15s;
 }
 
 .on .knob {

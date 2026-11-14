@@ -90,7 +90,8 @@ export function createGiftSubsModule(): BotModule {
         label: "Gesamtzahl des Schenkers anzeigen",
         type: "boolean",
         default: true,
-        description: "Wie viele Subs die Person bisher insgesamt in deinem Kanal verschenkt hat, sofern Twitch das mitschickt.",
+        description:
+          "Wie viele Subs die Person bisher insgesamt in deinem Kanal verschenkt hat, sofern Twitch das mitschickt.",
       },
       SHOW_AVATAR_SETTING,
       {

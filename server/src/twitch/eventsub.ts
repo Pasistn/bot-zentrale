@@ -91,7 +91,12 @@ export class RedemptionListener extends EventEmitter<{ redemption: [Redemption] 
           await subscribeToRedemptions(this.channel, message.payload.session!.id, this.rewardId);
           log("info", "giveaway", "Kanalpunkte-Einlösungen werden empfangen", this.channel);
         } catch (err) {
-          log("error", "giveaway", `Einlösungen nicht abonniert: ${err instanceof Error ? err.message : String(err)}`, this.channel);
+          log(
+            "error",
+            "giveaway",
+            `Einlösungen nicht abonniert: ${err instanceof Error ? err.message : String(err)}`,
+            this.channel
+          );
           socket.close();
         }
         return;

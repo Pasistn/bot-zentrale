@@ -1,4 +1,11 @@
-import { getSummary, postSummary, buildSummaryMessage, summaryOptions, summaryText, type SummaryView } from "../summaries.js";
+import {
+  getSummary,
+  postSummary,
+  buildSummaryMessage,
+  summaryOptions,
+  summaryText,
+  type SummaryView,
+} from "../summaries.js";
 import { DISCORD_WEBHOOK_PATTERN, sendDiscordWebhook } from "./discord-webhook.js";
 import type { BotModule, ModuleContext } from "./types.js";
 
@@ -43,11 +50,11 @@ export function createStreamSummaryModule(): BotModule {
         description: "Aus: Die Zusammenfassung wartet im Dashboard, bis du sie freigibst.",
       },
       {
-        key: 'showChat',
-        label: 'Chatnachrichten anzeigen',
-        type: 'boolean',
+        key: "showChat",
+        label: "Chatnachrichten anzeigen",
+        type: "boolean",
         default: true,
-        description: 'Zeigt die Anzahl der Chatnachrichten im Stream an.',
+        description: "Zeigt die Anzahl der Chatnachrichten im Stream an.",
       },
       {
         key: "showRaids",
