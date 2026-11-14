@@ -2,6 +2,12 @@
 
 Twitch-Bot mit Web-Dashboard für mehrere Streamer. Ein Server, eine Twitch-Anwendung: Freigeschaltete Streamer melden sich mit ihrem Twitch-Account an und bekommen ihren eigenen Bereich mit eigenen Modulen, Overlays und Statistiken. Funktionen lassen sich als Module einzeln an- und ausschalten und im Dashboard konfigurieren.
 
+![Giveaway mit Teilnehmern, Gewinnchancen und Verlauf](docs/screenshots/giveaway.png)
+
+| OBS-Overlays                                                            | Discord-Posts                                                               |
+| ----------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| ![OBS-Overlays mit gemeinsamem Link](docs/screenshots/obs-overlays.png) | ![Discord-Module und Stream-Highlights](docs/screenshots/discord-posts.png) |
+
 ## Module
 
 - **Watch-Streaks in Discord**: Geteilte Watch-Streaks aus dem Chat werden per Webhook in einen Discord-Kanal gepostet.
@@ -22,12 +28,13 @@ Alle OBS-Overlays laufen über einen einzigen Link. Position und Größe stellt 
 
 ## Technik
 
-| Teil | Stack |
-|---|---|
-| Server | Node.js 22, TypeScript, Fastify, tmi.js, WebSockets |
-| Datenbank | SQLite (`node:sqlite`), optional Postgres |
-| Dashboard | Vue 3, Vite |
-| Betrieb | Ubuntu (ARM64), Caddy, systemd |
+| Teil      | Stack                                               |
+| --------- | --------------------------------------------------- |
+| Server    | Node.js 22, TypeScript, Fastify, tmi.js, WebSockets |
+| Datenbank | SQLite (`node:sqlite`), optional Postgres           |
+| Dashboard | Vue 3, Vite                                         |
+| Betrieb   | Ubuntu (ARM64), Caddy, systemd                      |
+| Qualität  | `node:test`, ESLint, Prettier, GitHub Actions       |
 
 Das Projekt ist ein npm-Workspace mit `server/` und `web/`.
 
@@ -51,17 +58,18 @@ npm run secret
 
 Die Ausgabe von `npm run secret` kommt in `SESSION_SECRET`. In der `.env` außerdem Client-ID, Secret und `OWNER_LOGINS` eintragen.
 
-| Variable | |
-|---|---|
-| `PUBLIC_URL` | Adresse des Dashboards. Entwicklung `http://localhost:5173`, Build `http://localhost:3000` |
-| `PORT`, `HOST` | Standard `3000` und `127.0.0.1` |
-| `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | Aus der Twitch-Konsole |
-| `OWNER_LOGINS` | Betreiber der Zentrale, kommagetrennt. Sie schalten Streamer frei und sehen alle Kanäle |
-| `TWITCH_CHANNEL` | Optional: eigener Kanal, wird beim Start automatisch freigeschaltet |
-| `SESSION_SECRET` | Mindestens 32 Zeichen |
-| `SESSION_DAYS` | Gültigkeit der Sitzung, Standard 7 |
-| `DB_PATH` | SQLite-Datei, Standard `data/bot.db` |
-| `DATABASE_URL`, `DATABASE_CA` | Optional: Postgres statt SQLite |
+| Variable                                   |                                                                                               |
+| ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `PUBLIC_URL`                               | Adresse des Dashboards. Entwicklung `http://localhost:5173`, Build `http://localhost:3000`    |
+| `PORT`, `HOST`                             | Standard `3000` und `127.0.0.1`                                                               |
+| `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET` | Aus der Twitch-Konsole                                                                        |
+| `OWNER_LOGINS`                             | Betreiber der Zentrale, kommagetrennt. Sie schalten Streamer frei und sehen alle Kanäle       |
+| `TWITCH_CHANNEL`                           | Optional: eigener Kanal, wird beim Start automatisch freigeschaltet                           |
+| `SESSION_SECRET`                           | Mindestens 32 Zeichen. Signiert die Cookies und verschlüsselt die gespeicherten Twitch-Tokens |
+| `SESSION_DAYS`                             | Gültigkeit der Sitzung, Standard 7                                                            |
+| `DB_PATH`                                  | SQLite-Datei, Standard `data/bot.db`                                                          |
+| `DATABASE_URL`, `DATABASE_CA`              | Optional: Postgres statt SQLite                                                               |
+| `MEDIA_QUOTA_MB`                           | Speicher für hochgeladene Medien pro Kanal, Standard 300                                      |
 
 **3. Starten**
 
@@ -73,14 +81,17 @@ Startet Server (Port 3000) und Vite (Port 5173) mit Hot Reload. Dashboard unter 
 
 Für den Betrieb ohne Vite `PUBLIC_URL` auf `http://localhost:3000` setzen und `npm run build && npm start` ausführen.
 
-| Befehl | |
-|---|---|
-| `npm run dev` | Entwicklung |
-| `npm run build` | Dashboard und Server bauen |
-| `npm start` | Gebaute Version starten |
-| `npm run typecheck` | TypeScript prüfen |
-| `npm run secret` | Zufälliges Session-Secret |
-| `npm run deploy` | Committeten Stand auf den Server bringen |
+| Befehl              |                                          |
+| ------------------- | ---------------------------------------- |
+| `npm run dev`       | Entwicklung                              |
+| `npm run build`     | Dashboard und Server bauen               |
+| `npm start`         | Gebaute Version starten                  |
+| `npm run typecheck` | TypeScript prüfen                        |
+| `npm test`          | Tests ausführen                          |
+| `npm run lint`      | ESLint                                   |
+| `npm run format`    | Code mit Prettier formatieren            |
+| `npm run secret`    | Zufälliges Session-Secret                |
+| `npm run deploy`    | Committeten Stand auf den Server bringen |
 
 ## Mehrere Streamer
 
@@ -99,21 +110,31 @@ server/src/
   channels.ts       Kanäle starten und stoppen, Zugriffsregeln
   giveaway.ts       Giveaways pro Kanal: Teilnahme per Stichwort, Follower-Prüfung, Ziehung
   auth.ts           Twitch-OAuth, Sitzungen
-  db.ts, db/        SQLite/Postgres
+  db.ts             Datenbank starten, Stores exportieren
+  db/               Treiber (SQLite/Postgres), Migrationen, ein Store pro Thema, Verschlüsselung
   twitch/           Chat-Verbindung (chat.ts), Ereignisse pro Kanal (hub.ts), EventSub für Kanalpunkte,
                     Helix-API, Streamer-Token
   stream/           Stream-Erfassung und Statistik
   modules/          Module und Modul-Manager
   overlays/         Verteilung an OBS-Overlays
   routes/           REST-API und WebSocket
+server/test/        Tests mit node:test
 server/assets/      Overlay-Seiten, Platzhalterbild
 web/src/            Vue-Dashboard
 deploy/             Dienst, Caddy, Update-Skript
+docs/screenshots/   Bilder für diese Datei
 ```
 
-Login: OAuth Authorization Code Flow mit State-Cookie. Sitzungen liegen in der Datenbank, das Cookie ist signiert, `HttpOnly` und `SameSite=Lax`. Ändernde Anfragen und WebSockets werden nur von `PUBLIC_URL` angenommen. Secret-Einstellungen wie Webhook-URLs gehen nie zurück an den Browser.
+## Sicherheit
 
-Overlays können sich nicht bei Twitch anmelden und sind deshalb über einen geheimen Schlüssel im Link geschützt. Der Schlüssel lässt sich im Dashboard erneuern.
+- **Login**: OAuth Authorization Code Flow mit State-Cookie. Das Sitzungs-Cookie ist signiert, `HttpOnly` und `SameSite=Lax`. In der Datenbank steht nur der SHA-256-Hash der Sitzungs-ID.
+- **Twitch-Tokens** der Streamer werden mit AES-256-GCM verschlüsselt gespeichert. Der Schlüssel wird per HKDF aus `SESSION_SECRET` abgeleitet. Wird das Secret geändert, müssen sich alle neu anmelden.
+- **Anfragen**: Ändernde Anfragen und WebSockets werden nur von `PUBLIC_URL` angenommen. Rate-Limit pro IP, strenger für Login und Uploads.
+- **Header**: Content-Security-Policy, `X-Frame-Options`, `nosniff`, Referrer-Policy und bei HTTPS HSTS.
+- **Trennung der Kanäle**: Der Kanal kommt aus der Sitzung, nicht aus dem Browser. Wird einem Mod der Zugriff entzogen, trennt der Server seine offenen Verbindungen sofort. Wird ein Kanal entfernt, widerruft der Server die Twitch-Freigabe des Streamers.
+- **Uploads** werden am Dateiinhalt erkannt, nicht an der Endung. Pro Kanal gibt es ein Speicherlimit.
+- **Discord**: Webhook-URLs müssen auf `discord.com` zeigen und gehen nie zurück an den Browser. Beiträge erlauben keine Erwähnungen, damit Chatnachrichten kein `@everyone` auslösen.
+- **Overlays** können sich nicht bei Twitch anmelden und sind deshalb über einen geheimen Schlüssel im Link geschützt. Der Schlüssel lässt sich im Dashboard erneuern.
 
 ## Eigene Module
 
@@ -152,11 +173,11 @@ Verfügbare Events über `ctx.on`: `chat`, `watchStreak`, `raid`, `sub`, `giftSu
 
 Läuft produktiv auf einer Ubuntu-VM (ARM64) hinter Caddy, der das HTTPS-Zertifikat selbst holt. Die Dateien dazu liegen in `deploy/`:
 
-| Datei | |
-|---|---|
-| `deploy/Caddyfile` | Reverse-Proxy auf `127.0.0.1:3000` |
+| Datei                         |                                                                        |
+| ----------------------------- | ---------------------------------------------------------------------- |
+| `deploy/Caddyfile`            | Reverse-Proxy auf `127.0.0.1:3000`                                     |
 | `deploy/bot-zentrale.service` | systemd-Dienst mit Neustart bei Absturz, Schreibrechte nur auf `data/` |
-| `deploy/update.sh` | Sichert die Datenbank, installiert, baut und startet neu |
+| `deploy/update.sh`            | Sichert die Datenbank, installiert, baut und startet neu               |
 
 Auf dem Server steht in der `.env` `PUBLIC_URL` auf der öffentlichen HTTPS-Adresse, `HOST` bleibt `127.0.0.1`. Bei `https://` werden Cookies automatisch als `Secure` gesetzt. Die Callback-URL `https://…/auth/callback` muss in der Twitch-Konsole eingetragen sein.
 
