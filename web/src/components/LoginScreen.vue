@@ -10,7 +10,7 @@ defineEmits<{ retry: [] }>();
     <img class="banner" :src="banner" alt="" />
 
     <div class="panel">
-      <h1>Q2-Zentrale</h1>
+      <h1>Bot-Zentrale</h1>
       <p class="lead">Module, Overlays und Giveaways für deinen Stream an einem Ort.</p>
 
       <p v-if="error" class="notice error" role="alert">{{ error }}</p>

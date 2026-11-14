@@ -19,7 +19,7 @@
   --fault-soft: rgba(255, 107, 122, 0.1);
   --ok: #39d98a;
 
-  --font: "Archivo", "Segoe UI", system-ui, sans-serif;
+  --font: "Archivo Variable", "Archivo", "Segoe UI", system-ui, sans-serif;
   --font-log: "IBM Plex Mono", ui-monospace, Consolas, monospace;
 
   --step--1: 0.8125rem;
@@ -144,7 +144,9 @@ input[type="checkbox"] {
   white-space: nowrap;
   color: var(--text);
   text-decoration: none;
-  transition: background 0.15s, border-color 0.15s;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
 }
 
 .btn:hover:not(:disabled) {

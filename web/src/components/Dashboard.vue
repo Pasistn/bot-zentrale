@@ -190,7 +190,7 @@ function onLogout() {
         </svg>
       </button>
 
-      <span class="brand">Q2-Zentrale</span>
+      <span class="brand">Bot-Zentrale</span>
 
       <div class="signals" aria-live="polite">
         <span class="signal" :class="chatState.tone">
@@ -439,7 +439,9 @@ function onLogout() {
   border-right: 1px solid var(--line);
   transform: translateX(-100%);
   visibility: hidden;
-  transition: transform 0.2s ease, visibility 0.2s;
+  transition:
+    transform 0.2s ease,
+    visibility 0.2s;
 }
 
 .nav-open .sidebar {
